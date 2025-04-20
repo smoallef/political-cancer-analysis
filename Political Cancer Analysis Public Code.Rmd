@@ -1,0 +1,3757 @@
+---
+title: "Political Cancer Analysis Public"
+author: "Soroush Moallef"
+date: "2025-04-20"
+output: html_document
+---
+
+#R Dependencies 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library("tidyverse")
+library("janitor")
+library("corrplot")
+library("here")
+library("ggrepel")
+library("tigris")
+library("sf")
+library("ggdist")
+library("ggh4x")
+library("ggpubr")
+library("broom")
+library("knitr")
+
+# NEGATE FUNCTION
+`%ni%` <- Negate(`%in%`)
+
+# Change this to local data folder
+data_loc <- here::here("data")
+```
+
+
+#Data are publicly available from the links below
+
+#Political metrics
+-- Electoral college vote score	2012-2020	https://www.270towin.com/2012-election/#google_vignette
+https://ballotpedia.org/Presidential_election,_2016
+https://ballotpedia.org/Presidential_candidates,_2020
+
+-- State liberalism policy index	2012-2020	https://www.dropbox.com/t/MRDUHsLpFAzNBDhu
+
+-- DW-nominate	2012-2021	https://voteview.com/about
+
+-- State trifecta	2012-2021	https://ballotpedia.org/State_government_trifectas
+
+#Health outcomes
+-- Cancer stage at diagnosis	2017-2021	https://www.naaccr.org/cina-public-use-data-set/
+
+-- Cancer premature mortality rates	2017-2021	https://wonder.cdc.gov/
+
+#Covariates
+-- % below poverty	2012-2016,
+2017-2021	https://data.census.gov/table/ACSST5Y2012.S1701?q=Poverty+rates+by+state&g=010XX00US
+https://data.census.gov/table/ACSST5Y2021.S1701?q=Poverty+rates+by+state&g=010XX00US
+
+-- % of adults without health insurance (ages 35-65)	2012-2021	https://data2.nhgis.org/main
+
+-- N of years of state Medicaid expansion	2014-2016
+2017-2021	https://www.kff.org/status-of-state-medicaid-expansion-decisions/
+
+
+#Data Cleaning
+###Outcomes
+###Outcome cleaning:
+####Breast Cancer
+```{r}
+breast_data<-read.csv(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/Breast stage at diagnosis 2017-2021.csv")
+
+#remove first 9 categories of breast cancer, keep 40+
+
+breast_data_selected <- breast_data |>
+  select(
+    State = X,
+    "L_40.44.years", "L_45.49.years", "L_50.54.years", "L_55.59.years", 
+    "L_60.64.years", "L_65.69.years", "L_70.74.years", "L_75.79.years", 
+    "L_80.84.years", "L_85.89.years", "L_90..years",
+    "R_40.44.years", "R_45.49.years", "R_50.54.years", "R_55.59.years", 
+    "R_60.64.years", "R_65.69.years", "R_70.74.years", "R_75.79.years", 
+    "R_80.84.years", "R_85.89.years", "R_90..years", 
+    "D_40.44.years", "D_45.49.years", "D_50.54.years", "D_55.59.years", 
+    "D_60.64.years", "D_65.69.years", "D_70.74.years", "D_75.79.years", 
+    "D_80.84.years", "D_85.89.years", "D_90..years",
+    "unknown_40.44.years", "unknown_45.49.years", "unknown_50.54.years",
+    "unknown_55.59.years", "unknown_60.64.years", "unknown_65.69.years",
+    "unknown_70.74.years", "unknown_75.79.years", "unknown_80.84.years",
+    "unknown_85.89.years", "unknown_90..years"
+  )
+
+
+
+
+```
+
+####Cervix 
+```{r}
+
+cervix_data<-read.csv(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/Cervix Uteri stage at diagnosis 2017-2021.csv") 
+
+
+#restrict analysis to 25+
+cervix_data_selected <- cervix_data |>
+  select(
+    State = X,
+    "L_25.29.years","L_30.34.years", 
+"L_35.39.years", "L_40.44.years", "L_45.49.years", "L_50.54.years", "L_55.59.years", "L_60.64.years", "L_65.69.years", "L_70.74.years", "L_75.79.years","L_80.84.years","L_85.89.years","L_90..years","R_25.29.years", "R_30.34.years", "R_35.39.years", "R_40.44.years", "R_45.49.years", "R_50.54.years", "R_55.59.years", "R_60.64.years", "R_65.69.years", "R_70.74.years", "R_75.79.years", "R_80.84.years", "R_85.89.years", "R_90..years","D_25.29.years","D_30.34.years","D_35.39.years","D_40.44.years", "D_45.49.years", "D_50.54.years", "D_55.59.years", "D_60.64.years", "D_65.69.years", "D_70.74.years", "D_75.79.years", "D_80.84.years", "D_85.89.years", "D_90..years","unknown_25.29.years", "unknown_30.34.years","unknown_35.39.years","unknown_40.44.years", "unknown_45.49.years", "unknown_50.54.years", "unknown_55.59.years", "unknown_60.64.years", "unknown_65.69.years","unknown_70.74.years", "unknown_75.79.years", "unknown_80.84.years",
+"unknown_85.89.years", "unknown_90..years"
+  )
+
+
+#need to first get this into long format
+
+#create a list of imputed datasets  -------------------------------
+cervix_data_selected[cervix_data_selected == "^"] <- NA
+
+cervix_data_selected <- cervix_data_selected %>%
+  mutate(across(starts_with(c("L_", "R_", "D_", "unknown_")),
+                ~ gsub("[^0-9]", "", .x))) %>% # Replace any non-digit character with ""
+  mutate(across(starts_with(c("L_", "R_", "D_", "unknown_")), as.numeric))
+
+#wide to long
+cervix_data_long <- cervix_data_selected %>%
+  pivot_longer(
+    cols = starts_with(c("L_", "R_", "D_", "unknown_")), # Select columns to reshape
+    names_to = c("Stage", "Age_Group"), # Create new columns for Stage and Age Group
+    names_pattern = "(.*)_(.*)", # Define the pattern to extract stage and age
+    values_to = "Count", # Name of the column to store the counts
+    values_drop_na = FALSE # DO NOT remove rows with NA in the Count column
+  ) %>%
+  mutate(
+    Stage = case_when(
+      Stage == "L" ~ "Local",
+      Stage == "R" ~ "Regional",
+      Stage == "D" ~ "Distant",
+      TRUE ~ "Unstaged" # This assumes anything not L, R, D is unstaged
+    ),
+    Age_Group = str_replace_all(Age_Group, "\\.", "-") # Replace . with - in age group
+  )
+
+
+#ready for imputation 
+
+cervix_data_long <- readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/cervix_data_long.rds")
+
+
+```
+
+
+####Colorectal
+```{r}
+
+colorectal_data<-read.csv(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/Colorectal stage at diagnosis 2017-2021.csv")
+
+#restrict analysis to 45+
+
+colorectal_data_selected <- colorectal_data |>
+  select(
+    State = X,
+ "L_45.49.years", "L_50.54.years", "L_55.59.years", 
+    "L_60.64.years", "L_65.69.years", "L_70.74.years", "L_75.79.years", 
+    "L_80.84.years", "L_85.89.years", "L_90..years",
+ "R_45.49.years", "R_50.54.years", "R_55.59.years", 
+    "R_60.64.years", "R_65.69.years", "R_70.74.years", "R_75.79.years", 
+    "R_80.84.years", "R_85.89.years", "R_90..years", 
+"D_45.49.years", "D_50.54.years", "D_55.59.years", 
+    "D_60.64.years", "D_65.69.years", "D_70.74.years", "D_75.79.years", 
+    "D_80.84.years", "D_85.89.years", "D_90..years",
+"unknown_45.49.years", "unknown_50.54.years",
+    "unknown_55.59.years", "unknown_60.64.years", "unknown_65.69.years",
+    "unknown_70.74.years", "unknown_75.79.years", "unknown_80.84.years",
+    "unknown_85.89.years", "unknown_90..years"
+  )
+
+
+#create a list of imputed datasets  -------------------------------
+colorectal_data_selected[colorectal_data_selected== "^"] <- NA
+
+colorectal_data_selected <- colorectal_data_selected %>%
+  mutate(across(starts_with(c("L_", "R_", "D_", "unknown_")),
+                ~ gsub("[^0-9]", "", .x))) %>% # Replace any non-digit character with ""
+  mutate(across(starts_with(c("L_", "R_", "D_", "unknown_")), as.numeric))
+
+#wide to long
+colorectal_data_long <- colorectal_data_selected %>%
+  pivot_longer(
+    cols = starts_with(c("L_", "R_", "D_", "unknown_")), # Select columns to reshape
+    names_to = c("Stage", "Age_Group"), # Create new columns for Stage and Age Group
+    names_pattern = "(.*)_(.*)", # Define the pattern to extract stage and age
+    values_to = "Count", # Name of the column to store the counts
+    values_drop_na = FALSE # DO NOT remove rows with NA in the Count column
+  ) %>%
+  mutate(
+    Stage = case_when(
+      Stage == "L" ~ "Local",
+      Stage == "R" ~ "Regional",
+      Stage == "D" ~ "Distant",
+      TRUE ~ "Unstaged" # This assumes anything not L, R, D is unstaged
+    ),
+    Age_Group = str_replace_all(Age_Group, "\\.", "-") # Replace . with - in age group
+  )
+
+saveRDS(colorectal_data_long, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/colorectal_data_long.rds")
+
+
+
+```
+
+####Premature Mortality
+```{r}
+
+premature_cancer_mortality_2017 <-read.delim("~/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/Multiple Cause of Death, 2017.txt")
+
+premature_cancer_mortality_2017<-premature_cancer_mortality_2017|>
+  select(State,
+         Year,
+         Deaths,
+         Population,
+         Age_Adjusted_Rate = Age.Adjusted.Rate,
+         Age_Adjusted_Rate_Lower_95 = Age.Adjusted.Rate.Lower.95..Confidence.Interval,
+         Age_Adjusted_Rate_Upper_95 = Age.Adjusted.Rate.Upper.95..Confidence.Interval,
+         Age_Adjusted_Rate_Std_Error = Age.Adjusted.Rate.Standard.Error
+          )|>
+  drop_na()
+
+
+
+premature_cancer_mortality_2018_2021 <-read.delim("~/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/Multiple Cause of Death, 2018-2022, Single Race (1).txt")
+
+premature_cancer_mortality_2018_2021 <- premature_cancer_mortality_2018_2021|>
+  select(State,
+         Year,
+         Deaths,
+         Population,
+         Age_Adjusted_Rate = Age.Adjusted.Rate,
+         Age_Adjusted_Rate_Lower_95 = Age.Adjusted.Rate.Lower.95..Confidence.Interval,
+         Age_Adjusted_Rate_Upper_95 = Age.Adjusted.Rate.Upper.95..Confidence.Interval,
+         Age_Adjusted_Rate_Std_Error = Age.Adjusted.Rate.Standard.Error
+          )|>
+  drop_na()
+
+
+merged_premature_mortality_dataset <- full_join(premature_cancer_mortality_2017, premature_cancer_mortality_2018_2021,
+                             by = c("State", "Year","Deaths","Population","Age_Adjusted_Rate","Age_Adjusted_Rate_Lower_95","Age_Adjusted_Rate_Upper_95","Age_Adjusted_Rate_Std_Error"))
+
+
+
+#Calculate the averages for each state between 2017 and 2021
+averaged_premature_cancer_mortality_2017_2021_data <- merged_premature_mortality_dataset %>%
+  filter(Year >= 2017 & Year <= 2021) %>%
+  group_by(State) %>%
+  summarise(
+    Avg_Age_Adjusted_Rate = mean(Age_Adjusted_Rate, na.rm = TRUE),
+    Avg_Age_Adjusted_Rate_Lower_95 = mean(Age_Adjusted_Rate_Lower_95, na.rm = TRUE),
+    Avg_Age_Adjusted_Rate_Upper_95 = mean(Age_Adjusted_Rate_Upper_95, na.rm = TRUE),
+    Avg_Age_Adjusted_Rate_Std_Error = mean(Age_Adjusted_Rate_Std_Error, na.rm = TRUE)
+  ) %>%
+  ungroup() 
+  
+saveRDS(averaged_premature_cancer_mortality_2017_2021_data, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/premature_cancer_final_data_2017_to_2021.rds")
+
+```
+
+
+
+
+##Imputation
+###Breast Imputation
+```{r}
+
+# breast_data_selected[breast_data_selected == "^"] <- NA
+# 
+# breast_data_selected <- breast_data_selected %>%
+#   mutate(across(starts_with(c("L_", "R_", "D_", "unknown_")), 
+#                 ~ gsub("[^0-9]", "", .x))) %>% # Replace any non-digit character with ""
+#   mutate(across(starts_with(c("L_", "R_", "D_", "unknown_")), as.numeric))
+# 
+# #wide to long
+# breast_data_long <- breast_data_selected %>% 
+#   pivot_longer(
+#     cols = starts_with(c("L_", "R_", "D_", "unknown_")), # Select columns to reshape
+#     names_to = c("Stage", "Age_Group"), # Create new columns for Stage and Age Group
+#     names_pattern = "(.*)_(.*)", # Define the pattern to extract stage and age
+#     values_to = "Count", # Name of the column to store the counts
+#     values_drop_na = FALSE # DO NOT remove rows with NA in the Count column
+#   ) %>%
+#   mutate(
+#     Stage = case_when(
+#       Stage == "L" ~ "Local",
+#       Stage == "R" ~ "Regional",
+#       Stage == "D" ~ "Distant",
+#       TRUE ~ "Unstaged" # This assumes anything not L, R, D is unstaged
+#     ),
+#     Age_Group = str_replace_all(Age_Group, "\\.", "-") # Replace . with - in age group
+#   )
+# 
+# # #saveRDS(breast_data_long, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/breast_data_long.rds")
+# 
+# breast_data_long <- readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/breast_data_long.rds")
+# 
+# #this code will print off the suppression
+# breast_data_long %>% 
+#   filter(is.na(Count)) %>%  # Filter for rows with NA in the "Count" column
+#   select(State, Stage, Age_Group) %>% # Select columns to display
+#   table() 
+# 
+# 
+# # specify the number of imputations
+# n_imputations <- 5
+# 
+# # create a list object to hold the imputed datasets
+# df_imputed <- list()
+# 
+# for (iter in c(1:n_imputations)) {
+#   df_imputed[[iter]] <- breast_data_long |>
+#       mutate(Count = replace(Count, is.na(Count), sample(1:5, sum(is.na(Count)), replace = TRUE)))
+# }
+# 
+# #collapse the 90+ category
+# for (iter in 1:n_imputations) {
+#   df_imputed[[iter]] <- df_imputed[[iter]] %>% 
+#     mutate(Age_Group = fct_collapse(Age_Group, 
+#                                     "85+ years" = c("85-89-years", "90--years")))
+# }
+# 
+# 
+# #check the imputed sets to see if it got collapsed
+# for (iter in 1:n_imputations) {
+#   cat("\n---- Imputed Dataset", iter, "----\n") 
+#   print(levels(df_imputed[[iter]]$Age_Group)) 
+# }
+# 
+# #ready for age-standardization
+#save the imputations as an RDS 
+
+#saveRDS(df_imputed, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/breast_df_imputed.rds")
+
+breast_df_imputed <- readRDS( file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/breast_df_imputed.rds")
+
+```
+
+###Cervix Imputation
+```{r}
+#load cervix data in long form - 
+
+
+cervix_data_long <- readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/cervix_data_long.rds")
+
+#print off the suppression
+cervix_data_long %>%
+  filter(is.na(Count)) %>%  # Filter for rows with NA in the "Count" column
+  select(State, Stage, Age_Group) %>% # Select columns to display
+  table()
+
+
+# specify the number of imputations
+n_imputations <- 5
+
+# create a list object to hold the imputed datasets
+df_imputed <- list()
+
+for (iter in c(1:n_imputations)) {
+  df_imputed[[iter]] <- cervix_data_long |>
+      mutate(Count = replace(Count, is.na(Count), sample(1:5, sum(is.na(Count)), replace = TRUE)))
+}
+
+#collapse the 90+ category
+for (iter in 1:n_imputations) {
+  df_imputed[[iter]] <- df_imputed[[iter]] %>%
+    mutate(Age_Group = fct_collapse(Age_Group,
+                                    "85+ years" = c("85-89-years", "90--years")))
+}
+
+
+#check the imputed sets to see if it got collapsed
+for (iter in 1:n_imputations) {
+  cat("\n---- Imputed Dataset", iter, "----\n")
+  print(levels(df_imputed[[iter]]$Age_Group))
+}
+
+#ready for age-standardization
+#save the imputations as an RDS
+
+#saveRDS(df_imputed, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/cervix_df_imputed.rds")
+
+cervix_df_imputed <- readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/cervix_df_imputed.rds")
+
+
+```
+
+
+###Colorectal Imputation
+```{r}
+#load cervix data in long form - 
+
+colorectal_data_long <- readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/colorectal_data_long.rds")
+
+#print off the suppression
+colorectal_data_long %>%
+  filter(is.na(Count)) %>%  # Filter for rows with NA in the "Count" column
+  select(State, Stage, Age_Group) %>% # Select columns to display
+  table()
+
+
+# specify the number of imputations
+n_imputations <- 5
+
+# create a list object to hold the imputed datasets
+df_imputed <- list()
+
+for (iter in c(1:n_imputations)) {
+  df_imputed[[iter]] <- colorectal_data_long |>
+      mutate(Count = replace(Count, is.na(Count), sample(1:5, sum(is.na(Count)), replace = TRUE)))
+}
+
+#collapse the 90+ category
+for (iter in 1:n_imputations) {
+  df_imputed[[iter]] <- df_imputed[[iter]] %>%
+    mutate(Age_Group = fct_collapse(Age_Group,
+                                    "85+ years" = c("85-89-years", "90--years")))
+}
+
+
+#check the imputed sets to see if it got collapsed
+for (iter in 1:n_imputations) {
+  cat("\n---- Imputed Dataset", iter, "----\n")
+  print(levels(df_imputed[[iter]]$Age_Group))
+}
+
+#ready for age-standardization
+#save the imputations as an RDS
+
+saveRDS(df_imputed, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/colorectal_df_imputed.rds")
+
+colorectal_df_imputed <- readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/colorectal_df_imputed.rds")
+
+
+
+
+```
+
+
+#Age-standardization
+
+###Breast Cancer
+```{r}
+# read SEER standard population data. The 19 age categories need to be collapsed
+
+#recommended screening age for BREAST is 40+
+
+#seer data dictionary = https://seer.cancer.gov/stdpopulations/stdpopdic.html 
+#print(seer_age19)#this shows that this is indeed US 2000 standard million
+
+
+breast_data_long <- readRDS(file = here("/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/breast_data_long.rds"))|>
+  mutate(Age_Group = fct_collapse(Age_Group, "85+ years" = c("85-89-years", "90--years"))) |>
+  group_by(State, Stage, Age_Group) |>
+  summarise(Count = sum(Count)) |>
+  ungroup()
+
+breast_data_long<-breast_data_long|>
+  filter(Stage!="Unstaged")
+
+# specify the number of imputations
+n_imputations <- 10
+
+# create a list object to hold the imputed datasets
+df_imputed <- list()
+
+for (iter in c(1:n_imputations)) {
+  df_imputed[[iter]] <- breast_data_long |>
+    mutate(Count = replace(Count, is.na(Count), sample(1:5, sum(is.na(Count)), replace = TRUE)))
+}
+
+seer_age19 <- read_fwf(here("/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/stdpop.19ages.txt"),
+                       fwf_widths(c(3,3,8),
+                                  c("standard","age","std_raw"))) %>%
+  filter(standard=="201") %>% 
+  mutate(agecat = recode(age,
+                         '009' = "40-44 years", 
+                         '010' = "45-49 years",
+                         '011' = "50-54 years",
+                         '012' = "55-59 years",
+                         '013' = "60-64 years",
+                         '014' = "65-69 years",
+                         '015' = "70-74 years",
+                         '016' = "75-79 years",
+                         '017' = "80-84 years",
+                         '018' = "85+ years"),
+         std.pop = as.numeric(std_raw)) %>% 
+  group_by(agecat) %>%
+  summarise(std = sum(std.pop))
+
+
+
+#Function to calculate age-standardized counts and variances for a single imputed dataset
+f_age_standardize <- function(data, standard) {
+  # Merge the dataset with the age standard, by age category
+  data <- data |>
+    mutate(Age_Group = recode(Age_Group,
+                              "40-44-years" = "40-44 years",
+                              "45-49-years" = "45-49 years",
+                              "50-54-years" = "50-54 years",
+                              "55-59-years" = "55-59 years",
+                              "60-64-years" = "60-64 years",
+                              "65-69-years" = "65-69 years",
+                              "70-74-years" = "70-74 years",
+                              "75-79-years" = "75-79 years",
+                              "80-84-years" = "80-84 years",
+                              "85+ years" = "85+ years")) |>
+    left_join(standard, by = c("Age_Group" = "agecat")) |>
+    # calculate totals by state and stage
+    group_by(State, Age_Group) |>
+    mutate(n_i = sum(Count),
+           proportion_i = Count / n_i,
+           var_proportion_i = (proportion_i * (1 - proportion_i))/n_i,
+           w2 = std^2) |>
+    # age standardize
+    group_by(State, Stage) |>
+    summarise(proportion_std = sum(std*proportion_i),
+              sum_w = sum(std),
+              var_proportion_std = sum(var_proportion_i * w2),
+              sum_w2 = sum(w2)) |>
+    ungroup() |>
+    mutate(proportion_std = proportion_std / sum_w,
+           var_proportion_std = var_proportion_std/sum_w2) |>
+    # Create a row index variable which we will use later for matching to the pooled results
+    mutate(row_index = row_number()) |>
+    select(row_index, State, Stage, proportion_std, var_proportion_std)
+  
+  return(data)
+}
+
+
+
+# the age groups in breast_data_long match the SEER standard.
+# Apply the function to each imputed dataset
+imputed_results <- lapply(df_imputed, f_age_standardize, standard = seer_age19)
+
+for (i in 1:length(imputed_results)) {
+  print(paste("Imputed dataset", i))
+  print(imputed_results[[i]])
+}
+
+
+#pool the results using Rubin's rules for univariate estimates
+pool_age_standardized_counts <- function(list_results) {
+  pooled_results_list <- list()
+  
+  # Loop through each row index
+  for (i in 1:nrow(list_results[[1]])) {
+    # Get the vector of estimates across all list elements for row i
+    Q_vec <- sapply(list_results, function(x) x$proportion_std[i])
+    # Get the vector of variances across all list elements for row i
+    U_vec <- sapply(list_results, function(x) x$var_proportion_std[i])
+    
+    # Apply Rubin's rules for univariate estimates
+    pooled <- pool.scalar(Q = Q_vec, U = U_vec, n = NULL)
+    
+    # Create a single-row data frame for the results
+    pooled_results_list[[i]] <- data.frame(
+      row_index = i,
+      Qbar = pooled$qbar,  # pooled estimate
+      T = pooled$t      # pooled total variance
+    )
+  }
+  pooled_results_df <- do.call(rbind, pooled_results_list)
+  pooled_results_df <- pooled_results_df %>%
+    left_join(list_results[[1]] %>% select(row_index, State, Stage), by = "row_index")
+  
+  pooled_results_df
+}
+
+breast_final_dataset <- pool_age_standardized_counts(imputed_results) |>
+  mutate(low95 = Qbar - 1.96*sqrt(T),
+         up95 = Qbar + 1.96*sqrt(T)) |>
+  select(row_index, State, Stage, Qbar, low95, up95)
+
+
+breast_final_dataset<-breast_final_dataset|>
+  mutate(Stage_Percentage = Qbar*100)
+
+
+
+print(breast_final_dataset)
+
+saveRDS(breast_final_dataset, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/breast_final_data.rds")
+
+
+
+
+```
+
+
+
+###Cervix 
+
+```{r}
+# read SEER standard population data. The 19 age categories need to be collapsed
+
+#recommended screening age for cervix is 25+
+
+#seer data dictionary = https://seer.cancer.gov/stdpopulations/stdpopdic.html 
+#print(seer_age19)#this shows that this is indeed US 2000 standard million
+
+#read in imputed datasets first
+
+cervix_df_imputed <- readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/cervix_df_imputed.rds")
+
+seer_age19 <- read_fwf("/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/stdpop.19ages.txt",
+  fwf_widths(c(3,3,8),
+  c("standard","age","std_raw"))) %>%
+  filter(standard=="201") %>% 
+  mutate(agecat = recode(age,
+                         '006' = "25-29 years", 
+                         '007' = "30-34 years", 
+                         '008' = "35-39 years",                          
+                         '009' = "40-44 years", 
+                         '010' = "45-49 years",
+                         '011' = "50-54 years",
+                         '012' = "55-59 years",
+                         '013' = "60-64 years",
+                         '014' = "65-69 years",
+                         '015' = "70-74 years",
+                         '016' = "75-79 years",
+                         '017' = "80-84 years",
+                         '018' = "85+ years"),
+         std.pop = as.numeric(std_raw)) %>% 
+  group_by(agecat) %>%
+  summarise(std = sum(std.pop))
+
+
+
+#Function to calculate age-standardized counts and variances for a single imputed dataset
+f_age_standardize <- function(data, standard) {
+  # Merge the dataset with the age standard, by age category
+  data <- data %>%
+    mutate(Age_Group = recode(Age_Group,
+                              "25-29-years" = "25-29 years", 
+                              "30-34-years" = "30-34 years",
+                              "35-39-years" = "35-39 years",   
+                              "40-44-years" = "40-44 years",
+                              "45-49-years" = "45-49 years",
+                              "50-54-years" = "50-54 years",
+                              "55-59-years" = "55-59 years",
+                              "60-64-years" = "60-64 years",
+                              "65-69-years" = "65-69 years",
+                              "70-74-years" = "70-74 years",
+                              "75-79-years" = "75-79 years",
+                              "80-84-years" = "80-84 years",
+                              "85+ years" = "85+ years")) %>%
+    left_join(standard, by = c("Age_Group" = "agecat")) |>
+    # calculate totals by state and stage
+    group_by(State, Age_Group) |>
+    mutate(n_i = sum(Count),
+           proportion_i = Count / n_i,
+           var_proportion_i = (proportion_i * (1 - proportion_i))/n_i,
+           w2 = std^2) |>
+    # age standardize
+    group_by(State, Stage) |>
+    summarise(proportion_std = sum(std*proportion_i),
+              sum_w = sum(std),
+              var_proportion_std = sum(var_proportion_i * w2),
+              sum_w2 = sum(w2)) |>
+    ungroup() |>
+    mutate(proportion_std = proportion_std / sum_w,
+           var_proportion_std = var_proportion_std/sum_w2) |>
+    # Create a row index variable which we will use later for matching to the pooled results
+    mutate(row_index = row_number()) |>
+    select(row_index, State, Stage, proportion_std, var_proportion_std)
+  
+  return(data)
+}
+
+
+
+# the age groups in cervix_data_long match the SEER standard.
+# Apply the function to each imputed dataset
+imputed_results <- lapply(cervix_df_imputed, f_age_standardize, standard = seer_age19)
+
+for (i in 1:length(imputed_results)) {
+  print(paste("Imputed dataset", i))
+  print(imputed_results[[i]])
+}
+
+
+#pool the results using Rubin's rules for univariate estimates
+pool_age_standardized_counts <- function(list_results) {
+  pooled_results_list <- list()
+  
+  # Loop through each row index
+  for (i in 1:nrow(list_results[[1]])) {
+    # Get the vector of estimates across all list elements for row i
+    Q_vec <- sapply(list_results, function(x) x$proportion_std[i])
+    # Get the vector of variances across all list elements for row i
+    U_vec <- sapply(list_results, function(x) x$var_proportion_std[i])
+    
+    # Apply Rubin's rules for univariate estimates
+    pooled <- pool.scalar(Q = Q_vec, U = U_vec, n = NULL)
+    
+    # Create a single-row data frame for the results
+    pooled_results_list[[i]] <- data.frame(
+      row_index = i,
+      Qbar = pooled$qbar,  # pooled estimate
+      T = pooled$t      # pooled total variance
+    )
+  }
+  pooled_results_df <- do.call(rbind, pooled_results_list)
+  pooled_results_df <- pooled_results_df %>%
+    left_join(list_results[[1]] %>% select(row_index, State, Stage), by = "row_index")
+  
+  pooled_results_df
+}
+
+cervix_final_dataset <- pool_age_standardized_counts(imputed_results) |>
+  mutate(low95 = Qbar - 1.96*sqrt(T),
+         up95 = Qbar + 1.96*sqrt(T)) |>
+  select(row_index, State, Stage, Qbar, low95, up95)
+
+
+cervix_final_dataset<-cervix_final_dataset|>
+  mutate(Stage_Percentage = Qbar*100)
+
+print(cervix_final_dataset)
+
+
+cervix_final_dataset_filtered <- cervix_final_dataset %>%
+  filter(Stage != "Unstaged")
+
+
+saveRDS(cervix_final_dataset_filtered, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/cervix_final_data.rds")
+
+
+
+
+```
+
+
+###Colorectal
+```{r}
+#read SEER standard population data. The 19 age categories need to be collapsed
+
+#recommended screening age for BREAST is 45+
+
+#seer data dictionary = https://seer.cancer.gov/stdpopulations/stdpopdic.html 
+#print(seer_age19)#this shows that this is indeed US 2000 standard million
+
+colorectal_df_imputed <- readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/colorectal_df_imputed.rds")
+
+
+#load SEER standard populations and use the US 2000 Million column
+seer_age19 <- read_fwf("/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/stdpop.19ages.txt",
+  fwf_widths(c(3,3,8),
+  c("standard","age","std_raw"))) %>%
+  filter(standard=="201") %>% 
+  mutate(agecat = recode(age,
+                         '010' = "45-49 years",
+                         '011' = "50-54 years",
+                         '012' = "55-59 years",
+                         '013' = "60-64 years",
+                         '014' = "65-69 years",
+                         '015' = "70-74 years",
+                         '016' = "75-79 years",
+                         '017' = "80-84 years",
+                         '018' = "85+ years"),
+         std.pop = as.numeric(std_raw)) %>% 
+  group_by(agecat) %>%
+  summarise(std = sum(std.pop))
+
+
+
+#Function to calculate age-standardized counts and variances for a single imputed dataset
+f_age_standardize <- function(data, standard) {
+  # Merge the dataset with the age standard, by age category
+  data <- data %>%
+    mutate(Age_Group = recode(Age_Group,
+                              "45-49-years" = "45-49 years",
+                              "50-54-years" = "50-54 years",
+                              "55-59-years" = "55-59 years",
+                              "60-64-years" = "60-64 years",
+                              "65-69-years" = "65-69 years",
+                              "70-74-years" = "70-74 years",
+                              "75-79-years" = "75-79 years",
+                              "80-84-years" = "80-84 years",
+                              "85+ years" = "85+ years")) %>%
+    left_join(standard, by = c("Age_Group" = "agecat")) |>
+    # calculate totals by state and stage
+    group_by(State, Age_Group) |>
+    mutate(n_i = sum(Count),
+           proportion_i = Count / n_i,
+           var_proportion_i = (proportion_i * (1 - proportion_i))/n_i,
+           w2 = std^2) |>
+    # age standardize
+    group_by(State, Stage) |>
+    summarise(proportion_std = sum(std*proportion_i),
+              sum_w = sum(std),
+              var_proportion_std = sum(var_proportion_i * w2),
+              sum_w2 = sum(w2)) |>
+    ungroup() |>
+    mutate(proportion_std = proportion_std / sum_w,
+           var_proportion_std = var_proportion_std/sum_w2) |>
+    # Create a row index variable which we will use later for matching to the pooled results
+    mutate(row_index = row_number()) |>
+    select(row_index, State, Stage, proportion_std, var_proportion_std)
+  
+  return(data)
+}
+
+
+
+# the age groups in cervix_data_long match the SEER standard.
+# Apply the function to each imputed dataset
+imputed_results <- lapply(colorectal_df_imputed, f_age_standardize, standard = seer_age19)
+
+for (i in 1:length(imputed_results)) {
+  print(paste("Imputed dataset", i))
+  print(imputed_results[[i]])
+}
+
+
+#pool the results using Rubin's rules for univariate estimates
+pool_age_standardized_counts <- function(list_results) {
+  pooled_results_list <- list()
+  
+  # Loop through each row index
+  for (i in 1:nrow(list_results[[1]])) {
+    # Get the vector of estimates across all list elements for row i
+    Q_vec <- sapply(list_results, function(x) x$proportion_std[i])
+    # Get the vector of variances across all list elements for row i
+    U_vec <- sapply(list_results, function(x) x$var_proportion_std[i])
+    
+    # Apply Rubin's rules for univariate estimates
+    pooled <- pool.scalar(Q = Q_vec, U = U_vec, n = NULL)
+    
+    # Create a single-row data frame for the results
+    pooled_results_list[[i]] <- data.frame(
+      row_index = i,
+      Qbar = pooled$qbar,  # pooled estimate
+      T = pooled$t      # pooled total variance
+    )
+  }
+  pooled_results_df <- do.call(rbind, pooled_results_list)
+  pooled_results_df <- pooled_results_df %>%
+    left_join(list_results[[1]] %>% select(row_index, State, Stage), by = "row_index")
+  
+  pooled_results_df
+}
+
+colorectal_final_dataset <- pool_age_standardized_counts(imputed_results) |>
+  mutate(low95 = Qbar - 1.96*sqrt(T),
+         up95 = Qbar + 1.96*sqrt(T)) |>
+  select(row_index, State, Stage, Qbar, low95, up95)
+
+
+colorectal_final_dataset<-colorectal_final_dataset|>
+  mutate(Stage_Percentage = Qbar*100)
+
+print(colorectal_final_dataset)
+
+
+colorectal_final_dataset_filtered <- colorectal_final_dataset %>%
+  filter(Stage != "Unstaged")
+
+
+saveRDS(colorectal_final_dataset_filtered, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/colorectal_final_data.rds")
+
+```
+
+
+##Final standardized data
+```{r}
+breast_final_dataset<-readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/breast_final_data.rds")
+
+cervix_final_dataset<-readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/cervix_final_data.rds")
+
+colorectal_final_dataset<-readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/colorectal_final_data.rds")
+
+premature_cancer_mortality_2017_2021_data<-readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/premature_cancer_final_data_2017_to_2021.rds")
+```
+
+
+##Political Exposures
+##Exposure cleaning:
+```{r}
+setwd("/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/24_C19 Political Determinants Paper/C19 Elections Paper/")
+
+
+state_avg_DW_Senate_scores <- readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/24_C19 Political Determinants Paper/C19 Elections Paper/Output/state_avg_DW_Senate_scores.rds")
+
+
+###THESE ARE WRONG need the raw DATA
+congress_DW_Senate_data<-readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/24_C19 Political Determinants Paper/C19 Elections Paper/Output/congress_DW_Senate_data.rds")
+
+
+#READY TO MERGE
+CookPVI_2022_state_scores<-readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/24_C19 Political Determinants Paper/C19 Elections Paper/Output/CookPVI_2022_state_scores.rds")
+
+#READY TO MERGE
+statelib_2012_to_2020_data <- readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/24_C19 Political Determinants Paper/C19 Elections Paper/Output/flipped_statelib_2012_to_2020_data.rds")
+
+##trifecta needs some additional cleaning perhaps
+final_state_trifecta_1992_2024 <-readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/24_C19 Political Determinants Paper/C19 Elections Paper/Output/final_state_trifect_1992_2024.rds")
+
+#READY TO MERGE
+state_trifecta_2012_2021 <- final_state_trifecta_1992_2024|>
+  filter(Year >2011 & Year < 2022)
+
+
+
+```
+
+####DW-House Cleaning
+
+```{r}
+
+DW_House_112<-read_csv("/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/24_C19 Political Determinants Paper/C19 Elections Paper/Exposure Data/DW-Nominate/House/H112_members.csv")
+
+DW_House_113<-read_csv("/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/24_C19 Political Determinants Paper/C19 Elections Paper/Exposure Data/DW-Nominate/House/H113_members.csv")
+
+DW_House_114<-read_csv("/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/24_C19 Political Determinants Paper/C19 Elections Paper/Exposure Data/DW-Nominate/House/H114_members.csv")
+
+DW_House_115<-read_csv("/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/24_C19 Political Determinants Paper/C19 Elections Paper/Exposure Data/DW-Nominate/House/H115_members.csv")
+
+DW_House_116<-read_csv("/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/24_C19 Political Determinants Paper/C19 Elections Paper/Exposure Data/DW-Nominate/House/H116_members.csv")
+
+DW_House_117<-read_csv("/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/24_C19 Political Determinants Paper/C19 Elections Paper/Exposure Data/DW-Nominate/House/H117_members.csv")
+
+
+data_list <- list(DW_House_112, DW_House_113, DW_House_114, DW_House_115, DW_House_116, DW_House_117)
+
+combined_DW_House_data <- do.call(rbind, data_list)
+
+write.csv(combined_DW_House_data, file ="combined_DW_House_data_112_117.csv")
+
+combined_DW_House_data <-read.csv(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/combined_DW_House_data_112_117.csv")
+
+
+ combined_DW_House_data%>%
+   select(Year_Congress = "congress",
+          State = "state_abbrev",
+          Nominate_score = "nominate_dim1",
+          Party = party_code)->selected_combined_DW_House_data
+
+ filtered_selected_combined_DW_House_data <- selected_combined_DW_House_data %>%
+   filter(!State %in% c("AS", "GU", "MP", "PR", "USA", "VI", "DC"))
+
+ state_names <- c(
+   AK = "Alaska", AL = "Alabama", AR = "Arkansas", AZ = "Arizona",
+   CA = "California", CO = "Colorado", CT = "Connecticut", DC = "District of Columbia",
+   DE = "Delaware", FL = "Florida", GA = "Georgia", HI = "Hawaii",
+   IA = "Iowa", ID = "Idaho", IL = "Illinois", IN = "Indiana", KS = "Kansas",
+   KY = "Kentucky", LA = "Louisiana", MA = "Massachusetts", MD = "Maryland",
+   ME = "Maine", MI = "Michigan", MN = "Minnesota", MO = "Missouri",
+   MS = "Mississippi", MT = "Montana", NC = "North Carolina", ND = "North Dakota",
+   NE = "Nebraska", NH = "New Hampshire", NJ = "New Jersey", NM = "New Mexico",
+   NV = "Nevada", NY = "New York", OH = "Ohio", OK = "Oklahoma", OR = "Oregon",
+   PA = "Pennsylvania", RI = "Rhode Island", SC = "South Carolina",
+   SD = "South Dakota", TN = "Tennessee", TX = "Texas",
+   UT = "Utah", VA = "Virginia", VT = "Vermont",
+   WA = "Washington", WI = "Wisconsin", WV = "West Virginia", WY = "Wyoming"
+ )
+
+filtered_selected_combined_DW_House_data$State <- state_names[filtered_selected_combined_DW_House_data$State]
+
+
+year_mapping <- tibble(
+   Year_Congress = c(112, 113, 114, 115, 116, 117),
+   Year = list(c(2011, 2012), c(2013, 2014), c(2015, 2016), c(2017, 2018), c(2019, 2020), c(2021, 2022))
+ )
+
+state_avg_DW_House_scores <- filtered_selected_combined_DW_House_data %>%
+   inner_join(year_mapping, by = "Year_Congress") %>%
+   unnest(Year)
+
+#so this will double the dataset, but that's okay I think b/c we need a value for each year!
+
+#so at this point we have a score for each year.
+#let's multiply it by 1 to reverse it so that liberal = + and conservative = -
+ state_avg_DW_House_scores<-state_avg_DW_House_scores%>%
+   mutate(Nominate_score_reversed = Nominate_score*-1)
+
+#now need to figure out the average scores? and do the same for the senate
+
+state_avg_DW_House_scores <- state_avg_DW_House_scores |>
+   filter(Year > 2011 & Year < 2022)|>
+   select(State,
+          Year,
+          Nominate_score_reversed)
+
+saveRDS(state_avg_DW_House_scores, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/DW_House_data.rds")
+
+```
+
+####DW-Senate Cleaning
+```{r}
+
+DW_Senate_112<-read_csv("/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/24_C19 Political Determinants Paper/C19 Elections Paper/Exposure Data/DW-Nominate/Senate/S112_members.csv")
+
+DW_Senate_113<-read_csv("/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/24_C19 Political Determinants Paper/C19 Elections Paper/Exposure Data/DW-Nominate/Senate/S113_members.csv")
+
+DW_Senate_114<-read_csv("/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/24_C19 Political Determinants Paper/C19 Elections Paper/Exposure Data/DW-Nominate/Senate/S114_members.csv")
+
+DW_Senate_115<-read_csv("/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/24_C19 Political Determinants Paper/C19 Elections Paper/Exposure Data/DW-Nominate/Senate/S115_members.csv")
+
+DW_Senate_116<-read_csv("/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/24_C19 Political Determinants Paper/C19 Elections Paper/Exposure Data/DW-Nominate/Senate/S116_members.csv")
+
+DW_Senate_117<-read_csv("/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/24_C19 Political Determinants Paper/C19 Elections Paper/Exposure Data/DW-Nominate/Senate/S117_members.csv")
+
+
+data_list <- list(DW_Senate_112, DW_Senate_113, DW_Senate_114, DW_Senate_115, DW_Senate_116, DW_Senate_117)
+combined_DW_Senate_data <- do.call(rbind, data_list)
+
+write.csv(combined_DW_Senate_data, file ="/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/combined_DW_Senate_data_112_117.csv")
+
+combined_DW_Senate_data <-read.csv(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/combined_DW_Senate_data_112_117.csv")
+#
+combined_DW_Senate_data <-read.csv(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/combined_DW_Senate_data_112_117.csv")
+#
+combined_DW_Senate_data%>%
+  select(Year_Congress = "congress",
+         State = "state_abbrev",
+         Nominate_score = "nominate_dim1",
+         Party = party_code)->selected_combined_DW_Senate_data
+#
+filtered_selected_combined_DW_Senate_data <- selected_combined_DW_Senate_data %>%
+  filter(!State %in% c("AS", "GU", "MP", "PR", "USA", "VI", "DC"))
+
+
+state_names <- c(
+ AK = "Alaska", AL = "Alabama", AR = "Arkansas", AZ = "Arizona",
+ CA = "California", CO = "Colorado", CT = "Connecticut", DC = "District of Columbia",
+ DE = "Delaware", FL = "Florida", GA = "Georgia", HI = "Hawaii",
+ IA = "Iowa", ID = "Idaho", IL = "Illinois", IN = "Indiana", KS = "Kansas",
+ KY = "Kentucky", LA = "Louisiana", MA = "Massachusetts", MD = "Maryland",
+ ME = "Maine", MI = "Michigan", MN = "Minnesota", MO = "Missouri",
+ MS = "Mississippi", MT = "Montana", NC = "North Carolina", ND = "North Dakota",
+ NE = "Nebraska", NH = "New Hampshire", NJ = "New Jersey", NM = "New Mexico",
+ NV = "Nevada", NY = "New York", OH = "Ohio", OK = "Oklahoma", OR = "Oregon",
+ PA = "Pennsylvania", RI = "Rhode Island", SC = "South Carolina",
+ SD = "South Dakota", TN = "Tennessee", TX = "Texas",
+ UT = "Utah", VA = "Virginia", VT = "Vermont",
+ WA = "Washington", WI = "Wisconsin", WV = "West Virginia", WY = "Wyoming"
+)
+
+filtered_selected_combined_DW_Senate_data$State <- state_names[filtered_selected_combined_DW_Senate_data$State]
+
+
+year_mapping <- tibble(
+  Year_Congress = c(112, 113, 114, 115, 116, 117),
+  Year = list(c(2011, 2012), c(2013, 2014), c(2015, 2016), c(2017, 2018), c(2019, 2020), c(2021, 2022))
+)
+
+state_avg_DW_Senate_scores <- filtered_selected_combined_DW_Senate_data %>%
+inner_join(year_mapping, by = "Year_Congress") %>%
+unnest(Year)
+
+state_avg_DW_Senate_scores<-state_avg_DW_Senate_scores%>%
+mutate(Nominate_score_reversed = Nominate_score*-1)
+
+
+state_avg_DW_Senate_scores <- state_avg_DW_Senate_scores |>
+filter(Year > 2011 & Year < 2022)|>
+select(State,
+Year,
+Nominate_score_reversed)
+
+saveRDS(state_avg_DW_Senate_scores, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/DW_Senate_data.rds")
+
+
+```
+
+#Cook PVI
+```{r}
+CookPVI_2022_state_scores<-readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/24_C19 Political Determinants Paper/C19 Elections Paper/Output/CookPVI_2022_state_scores.rds")
+CookPVI_2022_state_scores <- CookPVI_2022_state_scores %>%
+  mutate(Year = 2022)
+```
+
+#Electoral College
+```{r}
+electoral_college<-read_csv(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/Electoral_Votes_2012_2020.csv")
+
+electoral_college <- electoral_college %>%
+  arrange(State, Year) %>%
+  mutate(
+    # Create a lagged column for the previous Vote
+    Prev_Vote = lag(Vote)
+  ) %>%
+  group_by(State) %>%
+  mutate(
+    Score_2016 = case_when(
+      Year == 2016 & Prev_Vote == "D" & Vote == "D" ~ 1,
+      Year == 2016 & Prev_Vote == "R" & Vote == "D" ~ 0.5,
+      Year == 2016 & Prev_Vote == "D" & Vote == "R" ~ -0.5,
+      Year == 2016 & Prev_Vote == "R" & Vote == "R" ~ -1,
+      TRUE ~ NA_real_
+    ),
+    Score_2020 = case_when(
+      Year == 2020 & Prev_Vote == "D" & Vote == "D" ~ 1,
+      Year == 2020 & Prev_Vote == "R" & Vote == "D" ~ 0.5,
+      Year == 2020 & Prev_Vote == "D" & Vote == "R" ~ -0.5,
+      Year == 2020 & Prev_Vote == "R" & Vote == "R" ~ -1,
+      TRUE ~ NA_real_
+    )
+  ) %>%
+  ungroup() %>%
+  select(-Prev_Vote)  # Clean up by removing the temporary column
+
+
+electoral_college <- electoral_college |>
+  mutate(
+    Score_2016 = ifelse(State == "Maine" & Year == 2016, 0.75, Score_2016),
+    Score_2020 = ifelse(State == "Maine" & Year == 2020, 0.75, Score_2020),
+    Score_2020 = ifelse(State == "Nebraska" & Year == 2020, -0.80, Score_2020)
+  )
+
+electoral_college_2016 <- electoral_college|>
+  filter(Year == 2016)|>
+  select(Year,
+         State,
+         Score_2016)
+  
+
+#saveRDS(electoral_college_2016, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/electoral_college_2016.rds")
+
+electoral_college_2020 <- electoral_college|>
+  filter(Year == 2020)|>
+  select(Year,
+         State,
+         Score_2020)
+  
+
+#saveRDS(electoral_college_2020, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/electoral_college_2020.rds")
+
+```
+
+#State liberalism Index
+```{r}
+statelib_2012_to_2020_data <- readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/24_C19 Political Determinants Paper/C19 Elections Paper/Output/flipped_statelib_2012_to_2020_data.rds")
+```
+
+#State Trifecta
+```{r}
+final_state_trifecta_1992_2024 <-readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/24_C19 Political Determinants Paper/C19 Elections Paper/Output/final_state_trifect_1992_2024.rds")
+
+```
+
+
+
+##Cleaned Exposures:
+###DW House data
+```{r}
+state_avg_DW_House_scores<- readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/DW_House_data.rds")
+
+
+DW_House_data <-readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/DW_House_data.rds") #this is the full dataset going back to 2012
+
+DW_House_summary_stats_2012_2021 <- DW_House_data |>
+  summarise(
+    Mean = mean(Nominate_score_reversed, na.rm = TRUE),
+    SD = sd(Nominate_score_reversed, na.rm = TRUE),
+    Median = median(Nominate_score_reversed, na.rm = TRUE),
+    Min = min(Nominate_score_reversed, na.rm = TRUE),
+    Max = max(Nominate_score_reversed, na.rm = TRUE),
+    IQR = IQR(Nominate_score_reversed, na.rm = TRUE)
+  )
+
+
+#among republicans
+
+DW_House_Republicans <- DW_House_data|>
+  filter(Nominate_score_reversed < 0) #filter for republicans (negative scores)
+
+
+DW_House_Republicans_summary_stats_2012_2021 <- DW_House_Republicans |>
+  summarise(
+    Mean = mean(Nominate_score_reversed, na.rm = TRUE),
+    SD = sd(Nominate_score_reversed, na.rm = TRUE),
+    Median = median(Nominate_score_reversed, na.rm = TRUE),
+    Min = min(Nominate_score_reversed, na.rm = TRUE),
+    Max = max(Nominate_score_reversed, na.rm = TRUE),
+    IQR = IQR(Nominate_score_reversed, na.rm = TRUE)
+  )
+
+DW_House_Democrats <- DW_House_data |>
+  filter(Nominate_score_reversed > 0) #filter for democrats (positive scores)
+
+DW_House_Democrats_summary_stats_2012_2021 <- DW_House_Democrats |>
+  summarise(
+    Mean = mean(Nominate_score_reversed, na.rm = TRUE),
+    SD = sd(Nominate_score_reversed, na.rm = TRUE),
+    Median = median(Nominate_score_reversed, na.rm = TRUE),
+    Min = min(Nominate_score_reversed, na.rm = TRUE),
+    Max = max(Nominate_score_reversed, na.rm = TRUE),
+    IQR = IQR(Nominate_score_reversed, na.rm = TRUE)
+  )
+
+
+```
+
+
+###Senate Data
+```{r}
+
+DW_Senate_data <-readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/DW_Senate_data.rds")
+
+
+DW_Senate_summary_stats_2012_2021 <- DW_Senate_data |>
+  summarise(
+    Mean = mean(Nominate_score_reversed, na.rm = TRUE),
+    SD = sd(Nominate_score_reversed, na.rm = TRUE),
+    Median = median(Nominate_score_reversed, na.rm = TRUE),
+    Min = min(Nominate_score_reversed, na.rm = TRUE),
+    Max = max(Nominate_score_reversed, na.rm = TRUE),
+    IQR = IQR(Nominate_score_reversed, na.rm = TRUE)
+  )
+
+
+#among republicans
+
+DW_Senate_Republicans <- DW_Senate_data|>
+  filter(Nominate_score_reversed < 0) #filter for republicans (negative scores)
+
+
+DW_Senate_Republicans_summary_stats_2012_2021 <- DW_Senate_Republicans |>
+  summarise(
+    Mean = mean(Nominate_score_reversed, na.rm = TRUE),
+    SD = sd(Nominate_score_reversed, na.rm = TRUE),
+    Median = median(Nominate_score_reversed, na.rm = TRUE),
+    Min = min(Nominate_score_reversed, na.rm = TRUE),
+    Max = max(Nominate_score_reversed, na.rm = TRUE),
+    IQR = IQR(Nominate_score_reversed, na.rm = TRUE)
+  )
+
+DW_Senate_Democrats <- DW_Senate_data |>
+  filter(Nominate_score_reversed > 0) #filter for democrats (positive scores)
+
+DW_Senate_Democrats_summary_stats_2012_2021 <- DW_Senate_Democrats |>
+  summarise(
+    Mean = mean(Nominate_score_reversed, na.rm = TRUE),
+    SD = sd(Nominate_score_reversed, na.rm = TRUE),
+    Median = median(Nominate_score_reversed, na.rm = TRUE),
+    Min = min(Nominate_score_reversed, na.rm = TRUE),
+    Max = max(Nominate_score_reversed, na.rm = TRUE),
+    IQR = IQR(Nominate_score_reversed, na.rm = TRUE)
+  )
+
+
+
+```
+
+
+#ICE House calculation
+```{r}
+
+#function to calculate ICE scores
+calculate_ice_scores <- function(data) {
+  # Calculate overall tercile cut points based on the entire study period
+  overall_tercile1 <- quantile(data$Nominate_score_reversed, probs = 1/3, na.rm = TRUE)
+  overall_tercile2 <- quantile(data$Nominate_score_reversed, probs = 2/3, na.rm = TRUE)
+
+  data %>%
+    mutate(
+      tercile_score = case_when(
+        Nominate_score_reversed <= overall_tercile1 ~ -1,
+        Nominate_score_reversed > overall_tercile1 & Nominate_score_reversed <= overall_tercile2 ~ 0,
+        Nominate_score_reversed > overall_tercile2 ~ 1
+      )
+    ) %>%
+    group_by(State, Year) %>%
+    summarise(
+      Ai = sum(tercile_score == 1, na.rm = TRUE),
+      Pi = sum(tercile_score == -1, na.rm = TRUE),
+      Ti = n()
+    ) %>%
+    mutate(
+      ICE = (Ai - Pi) / Ti
+    ) %>%
+    arrange(State, Year)
+}
+
+icescores_House <- calculate_ice_scores(DW_House_data)
+
+print(icescores_House)
+
+saveRDS(icescores_House, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/icescores_House.rds")
+
+
+
+```
+
+#ICE Senate calculation
+```{r}
+
+#function to calculate ICE scores
+calculate_ice_scores <- function(data) {
+  # Calculate overall tercile cut points based on the entire study period
+  overall_tercile1 <- quantile(data$Nominate_score_reversed, probs = 1/3, na.rm = TRUE)
+  overall_tercile2 <- quantile(data$Nominate_score_reversed, probs = 2/3, na.rm = TRUE)
+
+  data %>%
+    mutate(
+      tercile_score = case_when(
+        Nominate_score_reversed <= overall_tercile1 ~ -1,
+        Nominate_score_reversed > overall_tercile1 & Nominate_score_reversed <= overall_tercile2 ~ 0,
+        Nominate_score_reversed > overall_tercile2 ~ 1
+      )
+    ) %>%
+    group_by(State, Year) %>%
+    summarise(
+      Ai = sum(tercile_score == 1, na.rm = TRUE),
+      Pi = sum(tercile_score == -1, na.rm = TRUE),
+      Ti = n()
+    ) %>%
+    mutate(
+      ICE = (Ai - Pi) / Ti
+    ) %>%
+    arrange(State, Year)
+}
+
+icescores_Senate <- calculate_ice_scores(DW_Senate_data)
+
+print(icescores_Senate)
+
+saveRDS(icescores_Senate, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/icescores_Senate.rds")
+
+
+```
+
+
+
+##Covariates
+```{r}
+
+state_poverty_2016<- readRDS("/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/ACS5_state_poverty_2016.rds")
+
+state_poverty_2021<- readRDS("/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/ACS5_state_poverty_2021.rds")
+
+final_uninsured_2012_2022 <- readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/24_C19 Political Determinants Paper/C19 Elections Paper/Output/final_uninsured_2012_2022_data.rds")
+
+
+state_medicaid_coverage <- readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/state_medicaid_coverage_years.rds")
+```
+
+#Covariate cleaning: 
+#####state poverty
+```{r}
+
+state_poverty_2016<- read_csv("/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/ACSST5Y2016.S1701-2024-12-19T210638.csv")
+
+cleaned_state_poverty_2016 <- state_poverty_2016 %>%
+   slice(1) %>%
+   pivot_longer(
+     cols = -`Label (Grouping)`,
+     names_to = "State_Metric",
+     values_to = "Value",
+     values_transform = list(Value = as.character)
+   ) %>%
+   separate(State_Metric, into = c("State", "Metric"), sep = "!!", extra = "merge") %>% # Allow 'extra' pieces
+   unite(Metric, Metric, sep = "!!") %>% # Combine extra pieces back into Metric
+   pivot_wider(
+     names_from = Metric,
+     values_from = Value
+   ) %>%
+   select(State,
+          Total = `Total!!Estimate`,
+          `Margin of Error (Total)` = `Total!!Margin of Error`,
+          `Below Poverty Level` = `Below poverty level!!Estimate`,
+          `Margin of Error (Below Poverty)` = `Below poverty level!!Margin of Error`,
+          `Percent Below Poverty` = `Percent below poverty level!!Estimate`,
+          `Margin of Error (Percent Below Poverty)` = `Percent below poverty level!!Margin of Error`
+   ) %>%
+   mutate(across(c(Total, `Below Poverty Level`), parse_number),
+          `Percent Below Poverty` = parse_number(`Percent Below Poverty`)/100)
+
+print(cleaned_state_poverty_2016)
+
+cleaned_state_poverty_2016 <- cleaned_state_poverty_2016|>
+   filter(!State == "Puerto Rico")
+
+saveRDS(cleaned_state_poverty_2016, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/ACS5_state_poverty_2016.rds")
+
+
+
+state_poverty_2021<- read_csv("/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/ACSST5Y2021.S1701-2024-12-19T210606.csv")
+
+cleaned_state_poverty_2021 <- state_poverty_2021 %>%
+   slice(1) %>%
+   pivot_longer(
+     cols = -`Label (Grouping)`,
+     names_to = "State_Metric",
+     values_to = "Value",
+     values_transform = list(Value = as.character)
+   ) %>%
+   separate(State_Metric, into = c("State", "Metric"), sep = "!!", extra = "merge") %>% # Allow 'extra' pieces
+   unite(Metric, Metric, sep = "!!") %>% # Combine extra pieces back into Metric
+   pivot_wider(
+     names_from = Metric,
+     values_from = Value
+   ) %>%
+   select(State,
+          Total = `Total!!Estimate`,
+          `Margin of Error (Total)` = `Total!!Margin of Error`,
+          `Below Poverty Level` = `Below poverty level!!Estimate`,
+          `Margin of Error (Below Poverty)` = `Below poverty level!!Margin of Error`,
+          `Percent Below Poverty` = `Percent below poverty level!!Estimate`,
+          `Margin of Error (Percent Below Poverty)` = `Percent below poverty level!!Margin of Error`
+   ) %>%
+   mutate(across(c(Total, `Below Poverty Level`), parse_number),
+          `Percent Below Poverty` = parse_number(`Percent Below Poverty`)/100)
+
+print(cleaned_state_poverty_2021)
+
+cleaned_state_poverty_2021 <- cleaned_state_poverty_2021|>
+   filter(!State == "Puerto Rico")
+
+saveRDS(cleaned_state_poverty_2021, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/ACS5_state_poverty_2021.rds")
+```
+
+
+
+
+
+###state_medicaid
+```{r}
+state_medicaid <- read_csv(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/24_KFF_medicaid expansion data_data-ZJUAA_1212.csv")
+
+calculate_coverage_years <- function(implementation_date, end_date) {
+  if (is.na(implementation_date) || implementation_date > end_date) {
+    return(0)
+  }
+
+  # Calculate full years
+  full_years <- year(end_date) - year(implementation_date)
+
+  # Calculate partial year based on months
+  partial_years <- (yday(end_date) - yday(implementation_date)) / 365
+
+  if (partial_years < 0) {
+    partial_years <- 0
+  }
+
+  # Total points
+  total_points <- full_years + partial_years
+
+  # Cap the score at 5
+  total_points <- min(total_points, 5)
+
+  return(total_points)
+}
+
+cleaned_state_medicaid <- state_medicaid %>%
+  mutate(
+    Description = ifelse(is.na(Description), "0", Description), # Replace NA with "0"
+    Implementation_Date = case_when(
+      Description == "0" ~ NA,
+      TRUE ~ mdy(str_extract(Description, "\\d{1,2}/\\d{1,2}/\\d{4}"))
+    ),
+    Implementation_Year = ifelse(is.na(Implementation_Date), NA, year(Implementation_Date)),
+    ACA_Medicaid_Coverage_Years = sapply(Implementation_Date, calculate_coverage_years, end_date = as.Date("2021-12-31"))
+  )
+
+glimpse(cleaned_state_medicaid)
+
+cleaned_state_medicaid_selected <- cleaned_state_medicaid|>
+  select(State,
+         Implementation_Date,
+         ACA_Medicaid_Coverage_Years)
+
+
+saveRDS(cleaned_state_medicaid_selected, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/final_state_medicaid_coverage_years.rds")
+
+```
+
+##Cleaned Covariates
+```{r}
+
+cleaned_state_poverty_2016 <- readRDS(file ="/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper//Output/ACS5_state_poverty_2016.rds" )
+
+cleaned_state_poverty_2021 <-readRDS(file ="/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper//Output/ACS5_state_poverty_2021.rds" )
+
+cleaned_state_medicaid<-readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/final_state_medicaid_coverage_years.rds")
+
+```
+
+
+
+
+
+```{r}
+# Outcomes
+breast <- readRDS(file.path(data_loc, "clean", "breast_final_data.rds")) %>%
+  clean_names() %>% mutate(type = "breast")
+
+cervix <- readRDS(file.path(data_loc, "clean", "cervix_final_data.rds")) %>%
+  clean_names() %>% mutate(type = "cervix")
+ 
+cr <- readRDS(file.path(data_loc, "clean", "colorectal_final_data.rds")) %>%
+  clean_names() %>% mutate(type = "colorectal")
+
+reg_dist <- data.table::rbindlist(list(breast, cervix, cr), use.names = TRUE, fill = TRUE) %>%
+  mutate(stage_percentage = stage_percentage/100) %>%
+  filter(stage %in% c("Regional", "Distant")) %>% group_by(state, type) %>% 
+  summarise(across(c("stage_percentage"), ~sum(.x, na.rm=T))) %>% 
+  pivot_longer(cols = c("stage_percentage")) %>% mutate(var_lab = paste0(name, "_", type)) %>% 
+  dplyr::select(-type, -name) %>% ungroup() %>% arrange(var_lab, state) %>% mutate(years = "2017-2021")
+
+local <- data.table::rbindlist(list(breast, cervix, cr), use.names = TRUE, fill = TRUE) %>%
+  mutate(stage_percentage = stage_percentage/100) %>%
+  filter(stage %in% c("Local")) %>% group_by(state, type) %>% 
+  summarise(across(c("stage_percentage"), ~sum(.x, na.rm=T))) %>% 
+  pivot_longer(cols = c("stage_percentage")) %>% mutate(var_lab = paste0(name,"_local_", type)) %>% 
+  dplyr::select(-type, -name) %>% ungroup() %>% arrange(var_lab, state)  %>% mutate(years = "2017-2021")
+
+premature <- readRDS(file.path(data_loc, "clean", "premature_cancer_final_data_2017_to_2021.rds")) %>%
+  clean_names() %>% mutate(var_lab = "premature_avg_age_adjusted_rate") %>% 
+  dplyr::select(state, var_lab, value = avg_age_adjusted_rate)  %>% mutate(years = "2017-2021")
+
+# Exposures
+dw_nom_house16 <- readRDS(file.path(data_loc, "clean", "icescores_House_average_2012_2016.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "dw_nom_ice_house1216") %>% dplyr::select(state, var_lab, value = average_ice)  %>% mutate(years = "2012-2016")
+dw_nom_house21 <- readRDS(file.path(data_loc, "clean", "icescores_House_average_2017_2021.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "dw_nom_ice_house1721") %>% dplyr::select(state, var_lab, value = average_ice)  %>% mutate(years = "2017-2021")
+
+dw_nom_senate16 <- readRDS(file.path(data_loc, "clean", "icescores_Senate_average_2012_2016.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "dw_nom_ice_senate1216") %>% dplyr::select(state, var_lab, value = average_ice)  %>% mutate(years = "2012-2026")
+dw_nom_senate21 <- readRDS(file.path(data_loc, "clean", "icescores_Senate_average_2017_2021.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "dw_nom_ice_senate1721") %>% dplyr::select(state, var_lab, value = average_ice)  %>% mutate(years = "2017-2021")
+
+trifecta16 <- readRDS(file.path(data_loc, "clean", "party_consistency_summary_2012_2016.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "trifecta1216") %>% dplyr::select(state, var_lab, value = consistency) %>% 
+  mutate(value = case_when(value == "Republican" ~-1, 
+                           value == "Mixed" ~0, 
+                           value == "Democrat" ~1)) %>% mutate(years = "2012-2016")
+trifecta21 <- readRDS(file.path(data_loc, "clean", "state_trifecta_2017_2021.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "trifecta1721") %>% dplyr::select(state, var_lab, value = consistency) %>% 
+  mutate(value = case_when(value == "Republican" ~-1, 
+                           value == "Mixed" ~0, 
+                           value == "Democrat" ~1)) %>% mutate(years = "2017-2021")
+
+liberalism16 <- readRDS(file.path(data_loc, "clean", "statelib_2012_to_2016_average_data.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "state_liberalism1216") %>% dplyr::select(state, var_lab, value = average_policy_score) %>% mutate(years = "2012-2016")
+liberalism20 <- readRDS(file.path(data_loc, "clean", "statelib_2017_2020_average_data.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "state_liberalism1720") %>% dplyr::select(state, var_lab, value = average_policy_score) %>% mutate(years = "2017-2020")
+
+cook_pvi <- readRDS(file.path(data_loc, "clean", "CookPVI_2022_state_scores.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "cook_pvi") %>% dplyr::select(state, var_lab, value = pvi) %>% mutate(years = "2022")
+
+electoral16 <- readRDS(file.path(data_loc, "clean", "electoral_college_2016.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "electoral_score16") %>% dplyr::select(state, var_lab, value = score_2016) %>% mutate(years = "2016")
+electoral20 <- readRDS(file.path(data_loc, "clean", "electoral_college_2020.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "electoral_score20") %>% dplyr::select(state, var_lab, value = score_2020)%>% mutate(years = "2020")
+
+
+exp_data16 <- data.table::rbindlist(list(dw_nom_house16, dw_nom_senate16, trifecta16, liberalism16, electoral16)) 
+exp_data21 <- data.table::rbindlist(list(cook_pvi, dw_nom_house21, dw_nom_senate21, trifecta21, liberalism20, electoral20))
+
+# Covariates
+poverty16 <- readRDS(file.path(data_loc, "clean", "ACS5_state_poverty_2016.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "pct_below_poverty1216") %>% 
+  dplyr::select(state, var_lab, value = percent_below_poverty) %>% mutate(years = "2012-2016")
+poverty21 <- readRDS(file.path(data_loc, "clean", "ACS5_state_poverty_2021.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "pct_below_poverty1721") %>% 
+  dplyr::select(state, var_lab, value = percent_below_poverty) %>% mutate(years = "2017-2021")
+
+medicaid16 <- readRDS(file.path(data_loc, "clean", "state_medicaid_score_2014_2016.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "aca_medicaid_coverage1416") %>% dplyr::select(state, var_lab, value = aca_medicaid_coverage_years_2014_2016) %>% 
+  mutate(years = "2014-2016")
+medicaid21 <- readRDS(file.path(data_loc, "clean", "final_state_medicaid_coverage_years.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "aca_medicaid_coverage1721") %>% dplyr::select(state, var_lab, value = aca_medicaid_coverage_years)%>% 
+  mutate(years = "2017-2021")
+
+uninsured16 <- readRDS(file.path(data_loc, "clean", "final_uninsured_2012_2016_average_data.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "uninsured1216") %>% dplyr::select(state, var_lab, value = average_percent_uninsured_35_64) %>%
+  mutate(value = value/100)%>% 
+  mutate(years = "2012-2016")
+uninsured21 <- readRDS(file.path(data_loc, "clean", "final_uninsured_2017_2021_average_data.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "uninsured1721") %>% dplyr::select(state, var_lab, value = average_percent_uninsured_35_64) %>%
+  mutate(value = value/100)%>% 
+  mutate(years = "2017-2021")
+
+cov_data16 <- data.table::rbindlist(list(poverty16, medicaid16, uninsured16))
+cov_data21 <- data.table::rbindlist(list(poverty21, medicaid21, uninsured21))
+
+# Variable Lists
+exp_vars <- c("dw_nom_ice_house1216", "dw_nom_ice_house1721",
+              "dw_nom_ice_senate1216", "dw_nom_ice_senate1721", 
+              "trifecta1216", "trifecta1721", 
+              "state_liberalism1216", "state_liberalism1720",
+              "electoral_score16", "electoral_score20")
+outcome_vars <- c(paste0("stage_percentage_", c("breast", "cervix", "colorectal")), 
+                  paste0("stage_percentage_local_", c("breast", "cervix", "colorectal")), 
+                  "premature_avg_age_adjusted_rate")
+
+outcome_vars_rate <- c(paste0("age_std_estimate_", c("breast", "cervix", "colorectal")))
+cov_vars <- c("pct_below_poverty1216", "pct_below_poverty1721",
+              "uninsured1216", "uninsured1721",
+              "aca_medicaid_coverage1416", "aca_medicaid_coverage1721")
+
+ data.table::rbindlist(list(exp_data16, exp_data21, cov_data16, cov_data21, reg_dist, local, premature), 
+                                      use.names = TRUE, fill = TRUE) %>% pull(var_lab) %>% unique() ->varscomb
+
+var_levs <- c(exp_vars, cov_vars, outcome_vars, outcome_vars_rate)
+
+all_dat_long <- data.table::rbindlist(list(exp_data16, exp_data21, cov_data16, cov_data21, reg_dist, local, premature), 
+                                      use.names = TRUE, fill = TRUE) %>%
+  mutate(var_lab = factor(var_lab, levels = var_levs, ordered = TRUE))  %>% 
+  arrange(var_lab) %>% 
+  mutate(var_type = case_when(var_lab %in% exp_vars ~ "exp", 
+                              var_lab %in% outcome_vars ~ "outcome",
+                             # var_lab %in% outcome_vars_rate ~ "outcome_rate",
+                              var_lab %in% cov_vars ~ "cov")) %>%
+  mutate(state = if_else(state %in% c("Washington, D.C.", "District Of Columbia"), "District of Columbia", state))
+# Wide
+all_dat_cross <- all_dat_long %>% dplyr::select(-var_type) %>% 
+  arrange(var_lab) %>%
+  pivot_wider(id_cols = state, names_from = "var_lab", values_from = "value") %>% 
+  mutate(across(c(exp_vars, outcome_vars, cov_vars), ~as.numeric(as.character(.x))))
+
+
+
+west_virginia_row <- all_dat_cross %>% filter(state == "West Virginia")
+west_virgina_row <- all_dat_cross %>% filter(state == "West Virgina")
+
+# Update the trifecta columns in the correct row with the values from the incorrectly spelled row
+west_virginia_row <- west_virginia_row %>%
+  mutate(trifecta1216 = west_virgina_row$trifecta1216,
+         trifecta1721 = west_virgina_row$trifecta1721)
+#combine back
+all_dat_cross <- all_dat_cross %>%
+  filter(state != "West Virginia" & state != "West Virgina") %>%
+  bind_rows(west_virginia_row)
+
+
+```
+
+# Correlation Plot
+```{r fig.width = 9, fig.height = 9}
+
+cor_dat <- all_dat_cross %>% dplyr::select(-state, - trifecta1721, -trifecta1216) %>% 
+  rename("Liberalism Index 2012-2016" = "state_liberalism1216",
+         "Liberalism Index 2017-2020" = "state_liberalism1720",
+         "DW-Nom. House (ICE) 2012-2016" = "dw_nom_ice_house1216",
+         "DW-Nom. House (ICE) 2017-2021" = "dw_nom_ice_house1721",
+         "DW-Nom. Senate (ICE) 2012-2016" = "dw_nom_ice_senate1216",
+         "DW-Nom. Senate (ICE) 2017-2021" = "dw_nom_ice_senate1721",
+         "Electoral Score 2016" = "electoral_score16",
+         "Electoral Score 2020" = "electoral_score20",
+         "% Uninsured 2012-2016" ="uninsured1216",
+         "% Uninsured 2017-2021" ="uninsured1721",
+         "Years Medicaid Expanded 2014-2016" = "aca_medicaid_coverage1416",
+         "Years Medicaid Expanded 2017-2021" = "aca_medicaid_coverage1721",
+         "% Below Poverty 2012-2016" = "pct_below_poverty1216",
+         "% Below Poverty 2017-2021" = "pct_below_poverty1721",
+         "Breast: % Regional + Distant" = "stage_percentage_breast",
+         "Cervix: % Regional + Distant" = "stage_percentage_cervix",
+         "Colorectal: % Regional + Distant" = "stage_percentage_colorectal",
+         "Breast: % Local" = "stage_percentage_local_breast",
+         "Cervix: % Local" = "stage_percentage_local_cervix",
+         "Colorectal: % Local" = "stage_percentage_local_colorectal",
+         "Premature Cancer Mortality Rate" = "premature_avg_age_adjusted_rate"
+         )
+
+cor_dat <- cor_dat |>
+  select(-starts_with("NA"))
+
+m <- cor(cor_dat, use ="pairwise.complete.obs")
+
+testRes <-  cor.mtest(cor_dat, conf.level = 0.95)
+
+# JPEG or PDF
+file_path= file.path(here(), "outputs", "corr_plot_03.pdf")
+#jpeg(height=8, width=8.5, file=file_path, type = "cairo", units = "in", res = 500)
+pdf(height=10, width=10, file=file_path)
+corrplot(m, tl.col = "black", type = "upper", method = "color",
+                       number.cex = 1, 
+                  tl.cex = 0.9,
+                 tl.pos = "lt", bg = "grey80",
+                 p.mat = testRes$p, insig="label_sig", sig.level = c(0.001, 0.01, 0.05),pch.cex = 0.9, pch.col = 'grey20')
+        
+        
+corrplot(m, 
+         tl.col = "transparent", 
+         type = "lower",
+                       addCoef.col = 'black',  
+                 method = "color", 
+                  cl.pos = "n",
+                  tl.cex = 0.9,
+                 add= TRUE,  
+                number.cex = 0.65, 
+                 tl.pos = "lt", bg = "grey80")
+
+ dev.off()
+
+```
+
+
+```{r echo=FALSE, fig.height=9, fig.width=9, message=FALSE, warning=FALSE}
+var_list <- all_dat_long %>% 
+  #filter(var_type != "exp") %>% 
+  pull(var_lab) %>% unique() %>% as.character()
+state_abb <- data.frame(st = state.abb, state = state.name) 
+
+state_abb <- bind_rows(state_abb, data.frame(st = "DC", state = "District of Columbia"))
+plot_list <- c()
+# Looping Through Variables to plot values vs
+for(i in 1:length(var_list)){
+  y_dat <- all_dat_long %>% filter(var_lab == var_list[i]) %>% dplyr::select(state, y_val=value) %>%
+    left_join(state_abb, by = "state") 
+  
+  cor_dat_temp <- all_dat_long %>% 
+    #filter(var_type == "exp") %>% 
+    left_join(y_dat, by = "state") %>% group_by(var_lab) %>% 
+     summarise(cor = cor(value, y_val, use = "pairwise.complete.obs")) %>% 
+    mutate(cor = paste0("r = ",round(cor, 2)))
+  
+  colnames(y_dat) <- c("state", var_list[[i]], "st")
+  
+   
+  plot_list[[i]] <- all_dat_long %>% 
+    #filter(var_type == "exp") %>% 
+    left_join(y_dat, by = "state") %>% 
+    ggplot(., aes_string(x="value", y = var_list[i])) +
+    geom_point() + 
+    geom_smooth(se = T) +
+    geom_label(data = cor_dat_temp, aes(x = Inf, y = Inf, label = cor), hjust   = 1, vjust   = 1, color = "blue") + 
+    labs(title = paste("Exposure Variables (x-axis) vs.",var_list[i], "(y-axis)")) +
+    facet_wrap(.~var_lab, scales = "free_x") + 
+    geom_text_repel(aes(label = st), min.segment.length = unit(0.5, "lines"), size = 2.5) +
+    theme_classic()
+}
+
+
+file_path= file.path(here(), "outputs", "scatter_plots.pdf")
+#jpeg(height=8, width=8.5, file=file_path, type = "cairo", units = "in", res = 500)
+pdf(height=8, width=8.5, file=file_path)
+plot_list
+dev.off()
+```
+
+
+
+# Maps
+
+## Get State Spatial data
+```{r}
+state_sf <- states(cb = TRUE, resolution = "20m") %>%
+  shift_geometry(position = "below", preserve_area = FALSE) %>% mutate(state = NAME)
+
+all_dat_sf <- all_dat_long %>% left_join(state_sf, by = "state") %>% st_as_sf() 
+```
+
+
+## Mapping function
+```{r, fig.width = 8, fig.height= 4}
+zoom <- 80000
+
+# Function To Create Map With Histogram
+map_panel_hist_right <- function(dat_sf, var_plot, scale = FALSE, panel_lab, legend_lab, 
+                      break_vals = NULL, n_breaks = NULL, percent = FALSE, accur = 0.1, 
+                      leg.width = 1.5, bivar_colors = FALSE, asym_colors = FALSE, 
+                      pos_health_colors = FALSE,
+                      expand_width = 0.02, leg_scale = 0.97, 
+                      layout_in = "bin", plot_stack = FALSE, stack_width = 0.25, stack_mult = 0.9,
+                      bar_histogram = FALSE, bar_hist_widths = c(4.75,1),
+                      max_n_states = 10,
+                      rev_scale = FALSE, prob_cut = 0, cut_types = "equal", 
+                      manual_lab_vals = NULL, leg.width.num = 1.75){
+  # Filter to Plot Variable
+  plot_dat <- dat_sf %>% filter(var_lab == var_plot)
+  if(scale == TRUE){
+    plot_dat <- plot_dat %>% mutate(value = scale(value))
+  }
+  # If Null Will Use Percentile Cutpoints
+  if(is.null(break_vals) & cut_types == "percentiles"){
+    probs_in <- seq(0,1, length.out = n_breaks)
+    probs_in[1] <- 0+prob_cut 
+    probs_in[length(probs_in)] <- 1-prob_cut
+   plot_dat %>% filter(var_lab == var_plot) %>% pull(value) %>% quantile(., probs = probs_in) -> break_vals
+  }
+  
+  if(is.null(break_vals) & cut_types == "equal"){
+    probs_in <- seq(0,1, length.out = n_breaks)
+    probs_in[1] <- 0+prob_cut 
+    probs_in[length(probs_in)] <- 1-prob_cut
+    prob_ends <- c(min(probs_in), max(probs_in))
+   plot_dat %>% filter(var_lab == var_plot) %>% pull(value) %>% quantile(., probs = prob_ends) -> min_max
+   break_vals <- seq(min(min_max, na.rm=T), max(min_max, na.rm=T), length.out = n_breaks)
+  }
+  
+  # Break Labels & Palette
+  if(percent == TRUE){
+    break_labs <- break_vals
+    break_labs <- scales::label_percent(accuracy = accur)(break_labs)
+  }
+  if(percent == FALSE){
+    break_labs <- break_vals
+    break_labs <- scales::label_comma(accuracy = accur)(break_labs)
+  }
+  if(prob_cut>0){
+    break_labs[1] <- paste0("≤",break_labs[1])
+    break_labs[length(break_labs)] <- paste0(">",break_labs[length(break_labs)])
+  }
+  
+  break_pal <- pals::brewer.greys(length(break_labs))
+  if(pos_health_colors){break_pal <- pals::brewer.purples(length(break_labs))}
+  if(bivar_colors==TRUE){break_pal <- pals::brewer.rdbu(length(break_labs))}
+  if(asym_colors == TRUE){
+    neg_vals <- which(break_vals<=0)
+    neg_pal <- pals::brewer.rdbu((length(neg_vals)*2)-1)
+    break_pal[neg_vals] <- head(neg_pal,length(neg_vals))
+    
+    pos_vals <- which(break_vals>=0)
+    pos_pal <- pals::brewer.rdbu((length(pos_vals)*2)-1)
+    break_pal[pos_vals] <- tail(pos_pal,length(pos_vals))
+  }
+  
+  if(rev_scale == TRUE){break_pal <- rev(break_pal)}
+  names(break_pal) <- break_labs
+  if(!is.null(manual_lab_vals)){names(break_pal) <- manual_lab_vals}
+  
+  # Create Map
+  map <- plot_dat %>% 
+    mutate(panel_lab_plot = panel_lab) %>%
+    ggplot(., aes(fill = value)) + 
+    geom_sf() +
+   # facet_wrap(~panel_lab_plot) + 
+    #theme_classic() +
+    scale_x_continuous(expand = c(0, 0), limits=c(st_bbox(plot_dat)[1]-zoom, st_bbox(plot_dat)[3]+zoom)) + 
+    scale_y_continuous(expand = c(0, 0), limits=c(st_bbox(plot_dat)[2]-zoom, st_bbox(plot_dat)[4]+zoom)) +
+    scale_fill_gradientn(colors=break_pal,
+                       limits = c(min(break_vals), max(break_vals)), 
+                       labels = names(break_pal),
+                       #values= rescale(unname(break_vals)),
+                       breaks= unname(break_vals),
+                       guide="none",
+                       oob=scales::squish, 
+                       name = paste0(legend_lab)) +
+    theme_void()+
+    theme(#plot.title = element_text(size = 13, face = "bold"), 
+          axis.text.x = element_blank(),
+          axis.title.x = element_blank(),
+      )
+  
+  # Height of Legend
+  leg.width <- unit(leg.width.num, "in")
+  
+  
+  if(percent == TRUE){expand_width <- expand_width/5} # For Percent Variables
+  
+  # Histogram Legend
+    hist <- plot_dat %>% filter(!is.na(value)) %>%
+      mutate(value = ifelse((value == max(value,na.rm=T) | min(value,na.rm=T)) & plot_stack == TRUE, 
+                            value*stack_mult, value)) %>%
+      mutate(panel_lab_plot = panel_lab) %>%
+      ggplot(., aes(y=value,  fill = value, x = "cat")) +
+        {if(plot_stack == FALSE)geom_dots(alpha=1, layout = layout_in, lwd =0.25, color = "black", dotsize=1, 
+                                          overflow = "keep")} + 
+        {if(plot_stack == TRUE){geom_dots(alpha=1, 
+                                          smooth = smooth_discrete(kernel = "triangular", width = stack_width), 
+                                     lwd =0.25, color = "black", dotsize=1, overflow = "keep") }}+
+    
+        scale_fill_gradientn(colors = break_pal, 
+                             limits = c(min(break_vals), max(break_vals)), 
+                             breaks = unname(break_vals),
+                             values = scales::rescale(break_vals),
+                             oob = scales::squish) + 
+        theme_bw() + 
+        guides(fill = guide_colorbar(barheight = leg.width*leg_scale, direction = "vertical", position = "inside"))  +
+        force_panelsizes(rows = leg.width) +
+      
+        scale_y_continuous(expand = c(expand_width, expand_width), 
+                           breaks = unname(break_vals), 
+                           limits = c(min(break_vals), max(break_vals)), 
+                           labels = names(break_pal)) +
+        scale_x_discrete(expand = c(0,0.2)) +
+        labs(title = paste0(panel_lab)) +
+  
+        theme(
+          axis.title.x = element_blank(),
+          axis.title.y = element_blank(),
+          axis.text.x = element_blank(),
+          legend.title =element_blank(),
+          legend.text = element_blank(),
+          plot.title = element_text(face = "bold", size = rel(1)),
+          plot.title.position = "plot",
+          panel.grid = element_blank(),
+          legend.margin = margin(0,0,0,0.0, "npc"),
+          legend.background = element_rect(fill = "transparent"),
+          legend.box.spacing = unit(0, "mm"),
+          legend.frame = element_rect(color = "black", linewidth =0.2),
+          #legend.ticks = element_blank(),
+          legend.ticks = element_line(color = "blue"),
+          legend.justification.inside = c(0, 0.5),
+          panel.border = element_blank(), 
+          #panel.grid.major = element_blank(),
+          #  panel.grid.minor = element_blank(),
+            panel.background = element_blank(),
+          plot.margin = margin(0,0,0,0, "pt"),
+         #plot.background = element_rect(color = "purple"),
+          #  panel.spacing = unit(c(0,0,0,0), "mm"), 
+          #  #axis.ticks.x = element_blank(),
+            axis.ticks.x = element_blank(),
+        #    axis.ticks.length.x =   unit(3, "pt")
+        )
+      # Bar Histogram
+      hist_bar <- plot_dat %>% filter(!is.na(value)) %>%
+        mutate(value = ifelse((value == max(value,na.rm=T) | min(value,na.rm=T)) & plot_stack == TRUE, 
+                              value*stack_mult, value)) %>%
+        mutate(panel_lab_plot = panel_lab) %>%
+        ggplot(., aes(y=value,  fill = ..y..)) +
+          geom_histogram(bins = length(break_vals), center =break_vals[1], color = "grey20", 
+                         linewidth = 0.2) + 
+      
+          scale_fill_gradientn(colors = break_pal, 
+                               limits = c(min(break_vals), max(break_vals)), 
+                               breaks = unname(break_vals),
+                               values = scales::rescale(break_vals),
+                               oob = scales::squish) + 
+          theme_bw() + 
+          force_panelsizes(rows = leg.width) +
+        
+          scale_y_continuous(expand = c(expand_width, expand_width), 
+                             breaks = unname(break_vals), 
+                            # limits = c(min(break_vals), max(break_vals)), 
+                             labels = names(break_pal)) +
+          scale_x_continuous(expand = c(0,0), breaks = seq(0, max_n_states, by =5)) +
+          labs(title = paste0(panel_lab)) +
+          
+          theme(
+            axis.title.x = element_blank(),
+            axis.title.y = element_blank(),
+            #axis.text.x = element_blank(),
+            plot.title = element_text(face = "bold", size = rel(1)),
+            plot.title.position = "plot",
+            panel.grid = element_blank(),
+            legend.position = "none",
+            axis.line.y = element_line(color = "grey30"),            
+            panel.border = element_blank(), 
+            panel.grid.major.x = element_line(color = "grey80", linetype=2),
+            #  panel.grid.minor = element_blank(),
+              panel.background = element_blank(),
+            plot.margin = margin(0,0,0,0, "pt"),
+           #plot.background = element_rect(color = "purple"),
+            #  panel.spacing = unit(c(0,0,0,0), "mm"), 
+          #    axis.ticks.length.x =   unit(3, "pt")
+          )
+    # Combine plots
+    comb <- ggarrange(map, hist, ncol = 2, widths = c(2.25,1))
+    if(bar_histogram==TRUE){comb <- ggarrange(map, hist_bar, ncol = 2, widths = bar_hist_widths)}
+
+    return(comb)
+  
+}
+
+# Examples
+leg_width_temp <- 1.75
+
+# Health Outcomes
+map_out_breast <- map_panel_hist_right(all_dat_sf, "stage_percentage_breast", panel_lab = "Breast:\n% Regional +\nDistant ",
+                                          legend_lab = "%", 
+                        n_breaks=8, percent = TRUE, leg.width =leg_width_temp, scale = FALSE, accur = 0.1, cut_types = "equal", 
+                        bar_histogram = TRUE)
+map_out_breast
+
+var_levs
+```
+## Output
+
+### Exposures
+```{r, fig.width = 8, fig.height= 4}
+# Exposures
+# cook_vals <- unique(sort(c(0,seq(-25, 15, by = 5))))
+# all_dat_sf_cook <- all_dat_sf %>% filter(STUSPS %ni% "DC")
+# map_exp_cook_pvi <- map_panel_hist_right(all_dat_sf_cook, "cook_pvi", panel_lab = "Cook PVI", 
+#                                          legend_lab = "Score", 
+#                         break_vals = cook_vals, percent = FALSE, leg.width =leg_width_temp, 
+#                         scale = FALSE, accur = 1,
+#                         bar_histogram = TRUE,
+#                         bivar_colors = TRUE, asym_color = TRUE, rev_scale = FALSE)
+
+map_exp_dw_house<- map_panel_hist_right(all_dat_sf, "dw_nom_ice_house1721", 
+                                        panel_lab = "DW Nominate\nICE - House", legend_lab = "Score", 
+                        break_vals = seq(-1, 1, by = 0.2), percent = FALSE, leg.width =leg_width_temp, 
+                        scale = FALSE, accur = 0.1, bar_histogram = TRUE, 
+                        bivar_colors = TRUE,  rev_scale = FALSE)
+
+map_exp_dw_senate<- map_panel_hist_right(all_dat_sf, "dw_nom_ice_senate1721", panel_lab = "DW Nominate\nICE - Senate", 
+                                         legend_lab = "Score", 
+                        break_vals = seq(-1, 1, by = 0.2), percent = FALSE, leg.width =leg_width_temp, 
+                        scale = FALSE, accur = 0.1, 
+                        expand_width = 0.025, 
+                        #plot_stack = TRUE, stack_width = 0.8, stack_mult =0.95,
+                        layout_in = "bar", bar_histogram = TRUE, 
+                        bivar_colors = TRUE, rev_scale = FALSE)
+
+
+lib_vals <- unique(sort(c(seq(-3, 3, by = 0.5), 3.62)))
+map_exp_state_lib_index <- map_panel_hist_right(all_dat_sf, "state_liberalism1720", 
+                                          panel_lab = "State\nLiberalism\nIndex", legend_lab = "Index", 
+                        break_vals = lib_vals, percent = FALSE, leg.width =leg_width_temp, 
+                        scale = FALSE, accur = 0.1, 
+                        bar_histogram = TRUE, 
+                        bivar_colors = TRUE, asym_color = TRUE, rev_scale = FALSE)
+
+
+map_exp_trifecta <- map_panel_hist_right(all_dat_sf, "trifecta1721", panel_lab = "State\nTrifecta", 
+                                         legend_lab = "State\nTrifecta", 
+                        break_vals = seq(-1, 1, by =1), percent = FALSE, leg.width =leg_width_temp, scale = FALSE, 
+                        accur = 0.1, bar_histogram = TRUE, leg.width.num = 0.75, max_n_states = 15,
+                       # layout_in = "bar", 
+                        bivar_colors = TRUE, rev_scale = FALSE, manual_lab_vals = c("Rep", "None","Dem")
+                       )
+
+elec_vals <- all_dat_sf %>% data.frame() %>% filter(var_lab == "electoral_score20") %>% pull(value) %>% unique() %>% sort()
+map_exp_electoral <- map_panel_hist_right(all_dat_sf, "electoral_score20", 
+                                          panel_lab = "Electoral\nCollege\nScore", legend_lab = "Index", 
+                        break_vals = seq(-1,1, by= 0.25), 
+                        percent = FALSE, leg.width =leg_width_temp, 
+                        scale = FALSE, accur = 0.1, 
+                        bar_histogram = TRUE,  max_n_states = 20,
+                        bivar_colors = TRUE, asym_color = TRUE, rev_scale = FALSE)
+
+
+# Outcomes
+#map_exp_cook_pvi
+map_exp_dw_house
+map_exp_dw_senate
+map_exp_state_lib_index
+map_exp_trifecta
+```
+
+### Outcomes
+```{r, fig.width = 8, fig.height= 4}
+# Outcomes
+map_out_breast <- map_panel_hist_right(all_dat_sf, "stage_percentage_breast", panel_lab = "Breast:\n% Regional +\nDistant",
+                                          legend_lab = "%", 
+                        n_breaks=8, percent = TRUE, leg.width =leg_width_temp, scale = FALSE, accur = 0.1, cut_types = "equal", 
+                        bar_histogram = TRUE)
+map_out_breast_local <- map_panel_hist_right(all_dat_sf, "stage_percentage_local_breast", panel_lab = "Breast:\n% Local",
+                                          legend_lab = "%", pos_health_colors = TRUE,
+                        n_breaks=8, percent = TRUE, leg.width =leg_width_temp, scale = FALSE, accur = 0.1, cut_types = "equal", 
+                        bar_histogram = TRUE)
+
+map_out_cervix <- map_panel_hist_right(all_dat_sf, "stage_percentage_cervix", panel_lab = "Cervix:\n% Regional +\nDistant",
+                                          legend_lab = "%", 
+                        n_breaks=8, percent = TRUE, leg.width =leg_width_temp, scale = FALSE, accur = 0.1, cut_types = "equal", 
+                        bar_histogram = TRUE)
+map_out_cervix_local <- map_panel_hist_right(all_dat_sf, "stage_percentage_local_cervix", panel_lab = "Cervix:\n% Local",
+                                          legend_lab = "%", pos_health_colors = TRUE,
+                        n_breaks=8, percent = TRUE, leg.width =leg_width_temp, scale = FALSE, accur = 0.1, cut_types = "equal", 
+                        bar_histogram = TRUE)
+
+map_out_cr <- map_panel_hist_right(all_dat_sf, "stage_percentage_colorectal", panel_lab = "Colorectal:\n% Regional +\nDistant",
+                                          legend_lab = "%", 
+                        n_breaks=8, percent = TRUE, leg.width =leg_width_temp, scale = FALSE, accur = 0.1, cut_types = "equal", 
+                        bar_histogram = TRUE)
+
+map_out_cr_local <- map_panel_hist_right(all_dat_sf, "stage_percentage_local_colorectal", panel_lab = "Colorectal:\n% Local",
+                                          legend_lab = "%", pos_health_colors = TRUE,
+                        n_breaks=8, percent = TRUE, leg.width =leg_width_temp, scale = FALSE, accur = 0.1, cut_types = "equal", 
+                        bar_histogram = TRUE)
+
+map_out_premat <- map_panel_hist_right(all_dat_sf, "premature_avg_age_adjusted_rate", 
+                                       panel_lab = "Premature\nCancer\nMortality",
+                                          legend_lab = "Rate", 
+                        n_breaks=8, percent = FALSE, leg.width =leg_width_temp, scale = FALSE, accur = 0.1, cut_types = "equal", 
+                        bar_histogram = TRUE)
+
+all_dat_sf %>% data.frame() %>% group_by(var_type, var_lab) %>% summarise(n())
+
+# Outcomes
+map_out_breast
+map_out_breast_local
+map_out_cervix
+map_out_cervix_local
+map_out_cr
+map_out_cr_local
+map_out_premat
+```
+
+### Covariates
+```{r}
+# Uninsured
+map_cov_uninsured <- map_panel_hist_right(all_dat_sf, "uninsured1721", panel_lab = "Uninsured", legend_lab = "%", 
+                      n_breaks = 10, expand_width = 0.025, leg_scale = 0.95, bar_histogram = TRUE, 
+                        percent = TRUE, leg.width =leg_width_temp, scale = FALSE, accur = 1.0, cut_types = "equal")
+
+map_cov_poverty <- map_panel_hist_right(all_dat_sf, "pct_below_poverty1721", panel_lab = "Below\nPoverty", legend_lab = "%", 
+                      n_breaks = 10, expand_width = 0.025, leg_scale = 0.95, bar_histogram = TRUE, 
+                        percent = TRUE, leg.width =leg_width_temp, scale = FALSE, accur = 1.0, cut_types = "equal")
+
+map_cov_aca_medicaid <- map_panel_hist_right(all_dat_sf, "aca_medicaid_coverage1721", 
+                                              panel_lab = "Years of\nMedicaid\nExpansion", legend_lab = "%", 
+                                              bar_histogram = TRUE,  pos_health_colors = TRUE,
+                                             break_vals = seq(0,5, by = 0.5), max_n_states = 30,
+                        n_breaks=6, percent = FALSE, leg.width =leg_width_temp, scale = FALSE, accur = 0.1)
+
+
+map_cov_uninsured
+map_cov_poverty
+map_cov_aca_medicaid
+
+```
+
+## Arrange Maps
+
+### Exposure + Covariates
+```{r, fig.width = 12, fig.height=12}
+maps_exp_covs <- ggarrange(map_exp_state_lib_index, map_exp_dw_house, map_exp_dw_senate, map_exp_trifecta, map_exp_electoral,
+           map_cov_poverty, map_cov_uninsured, map_cov_aca_medicaid, 
+           nrow = 4, ncol=2, labels = "auto", vjust = 1, hjust = -2.5, label.x = 0.0)
+maps_exp_covs
+hist_width <- 12.75
+hist_height <- 12
+ ggsave(path = file.path(here(), "outputs"), filename = "map_exp_covs_hist.jpeg", maps_exp_covs, 
+        width = hist_width, height = hist_height, device='jpeg', dpi=700, scale = 1)
+ ggsave(path = file.path(here(), "outputs"), filename = "map_exp_covs_hist.pdf", maps_exp_covs, 
+        width = hist_width, height = hist_height, device=cairo_pdf, dpi=700, scale = 1)
+```
+### Outcomes
+```{r, fig.width = 12, fig.height=12}
+map_outcomes <- ggarrange(map_out_breast,map_out_breast_local, 
+                          map_out_cervix, map_out_cervix_local, 
+                          map_out_cr, map_out_cr_local, 
+                          map_out_premat,
+          nrow = 4, ncol=2, labels = "auto", vjust = 1, hjust = -2.5, label.x = 0.0)
+
+map_outcomes
+
+hist_width <- 12.75
+hist_height <- 12
+
+ggsave(path = file.path(here(), "outputs"), filename = "map_outcomes_hist.jpeg", map_outcomes, 
+       width = hist_width, height = hist_height, device='jpeg', dpi=700, scale = 1)
+ggsave(path = file.path(here(), "outputs"), filename = "map_outcomes_hist.pdf", map_outcomes, 
+       width = hist_width, height = hist_height, device=cairo_pdf, dpi=700, scale = 1)
+
+```
+
+### All Maps Combined
+```{r, fig.width = 17, fig.height=12}
+map_all <- ggarrange(map_out_breast, map_out_cervix, map_out_cr, map_out_premat, map_exp_electoral, map_exp_state_lib_index, map_exp_trifecta, map_exp_dw_house, map_exp_dw_senate, map_cov_poverty, map_cov_uninsured, map_cov_aca_medicaid, nrow = 4, ncol=3, labels = "auto", vjust = 1, hjust = -2.5, label.x = 0.0)
+
+map_all
+
+hist_width <- 18
+hist_height <- 12
+
+ggsave(path = file.path(here(), "outputs"), filename = "map_all_hist_03_2025.jpeg", map_all, 
+       width = hist_width, height = hist_height, device='jpeg', dpi=700, scale = 1)
+
+ggsave(path = file.path(here(), "outputs"), filename = "map_all_hist_03_2025.pdf", map_all, 
+       width = hist_width, height = hist_height, dpi=700, scale = 1)
+```
+
+
+---
+title: "C19 Political Cancer Results"
+author: "Soroush Moallef"
+date: "2025-02-01"
+output: html_document
+---
+
+```{r}
+library("tidyverse")
+library(lubridate)
+```
+
+#Table 1
+```{r}
+
+breast_final_dataset<-readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/breast_final_data.rds")
+
+breast_final_dataset_summary_stats <- breast |>
+  group_by(stage)|>
+  summarise(
+    Mean = mean(stage_percentage, na.rm = TRUE),
+    SD = sd(stage_percentage, na.rm = TRUE),
+    Median = median(stage_percentage, na.rm = TRUE),
+    Min = min(stage_percentage, na.rm = TRUE),
+    Max = max(stage_percentage, na.rm = TRUE),
+    IQR = IQR(stage_percentage, na.rm = TRUE)
+  )
+
+print(breast_final_dataset_summary_stats)
+
+
+```
+
+```{r}
+
+cervix_final_dataset<-readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/cervix_final_data.rds")
+
+cervix_final_dataset_summary_stats <- cervix_final_dataset |>
+  group_by(Stage)|>
+  summarise(
+    Mean = mean(Stage_Percentage, na.rm = TRUE),
+    SD = sd(Stage_Percentage, na.rm = TRUE),
+    Median = median(Stage_Percentage, na.rm = TRUE),
+    Min = min(Stage_Percentage, na.rm = TRUE),
+    Max = max(Stage_Percentage, na.rm = TRUE),
+    IQR = IQR(Stage_Percentage, na.rm = TRUE)
+  )
+
+print(cervix_final_dataset_summary_stats)
+```
+
+```{r}
+
+colorectal_final_dataset<-readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/colorectal_final_data.rds")
+
+colorectal_final_dataset_summary_stats <- colorectal_final_dataset |>
+  group_by(Stage)|>
+  summarise(
+    Mean = mean(Stage_Percentage, na.rm = TRUE),
+    SD = sd(Stage_Percentage, na.rm = TRUE),
+    Median = median(Stage_Percentage, na.rm = TRUE),
+    Min = min(Stage_Percentage, na.rm = TRUE),
+    Max = max(Stage_Percentage, na.rm = TRUE),
+    IQR = IQR(Stage_Percentage, na.rm = TRUE)
+  )
+
+print(colorectal_final_dataset_summary_stats)
+
+```
+
+```{r}
+premature_cancer_mortality_2017_2021_data<-readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/premature_cancer_final_data_2017_to_2021.rds")
+
+premature_cancer_mortality_2017_2021_data_summary_stats <- premature_cancer_mortality_2017_2021_data |>
+  summarise(
+    Mean = mean(Avg_Age_Adjusted_Rate, na.rm = TRUE),
+    SD = sd(Avg_Age_Adjusted_Rate, na.rm = TRUE),
+    Median = median(Avg_Age_Adjusted_Rate, na.rm = TRUE),
+    Min = min(Avg_Age_Adjusted_Rate, na.rm = TRUE),
+    Max = max(Avg_Age_Adjusted_Rate, na.rm = TRUE),
+    IQR = IQR(Avg_Age_Adjusted_Rate, na.rm = TRUE)
+  )
+
+print(premature_cancer_mortality_2017_2021_data_summary_stats)
+```
+
+```{r}
+
+icescores_House<-readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/icescores_House.rds")
+
+icescores_House <- icescores_House %>%
+  ungroup()
+
+icescores_House_2012_2016 <- icescores_House|>
+  filter(Year<2017)
+
+
+icescores_House_summary_stats_2012_2016 <- icescores_House_2012_2016 |>
+  summarise(
+    Mean = mean(ICE, na.rm = TRUE),
+    SD = sd(ICE, na.rm = TRUE),
+    Median = median(ICE, na.rm = TRUE),
+    Min = min(ICE, na.rm = TRUE),
+    Max = max(ICE, na.rm = TRUE),
+    IQR = IQR(ICE, na.rm = TRUE)
+  )
+
+print(icescores_House_summary_stats_2012_2016)
+
+
+icescores_House_average_2012_2016 <- icescores_House_2012_2016 %>%
+  group_by(State) %>%
+  summarise(Average_ICE = mean(ICE, na.rm = TRUE))
+
+saveRDS(icescores_House_average_2012_2016, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/icescores_House_average_2012_2016.rds")
+
+
+icescores_House_2017_2021 <- icescores_House|>
+  filter(Year>2016)
+
+icescores_House_summary_stats_2017_2021 <- icescores_House_2017_2021 |>
+  summarise(
+    Mean = mean(ICE, na.rm = TRUE),
+    SD = sd(ICE, na.rm = TRUE),
+    Median = median(ICE, na.rm = TRUE),
+    Min = min(ICE, na.rm = TRUE),
+    Max = max(ICE, na.rm = TRUE),
+    IQR = IQR(ICE, na.rm = TRUE)
+  )
+
+#icescores_House_average_2017_2021 <- icescores_House_2017_2021 %>%
+#  group_by(State) %>%
+#  summarise(Average_ICE = mean(ICE, na.rm = TRUE))
+
+#saveRDS(icescores_House_average_2017_2021, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/icescores_House_average_2017_2021.rds")
+
+print(icescores_House_summary_stats_2017_2021)
+```
+
+```{r}
+
+
+icescores_Senate<-readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/icescores_Senate.rds")
+
+icescores_Senate <- icescores_Senate %>%
+  ungroup()
+
+icescores_Senate_2012_2016 <- icescores_Senate|>
+  filter(Year<2017)
+
+icescores_Senate_summary_stats_2012_2016 <- icescores_Senate_2012_2016 |>
+  summarise(
+    Mean = mean(ICE, na.rm = TRUE),
+    SD = sd(ICE, na.rm = TRUE),
+    Median = median(ICE, na.rm = TRUE),
+    Min = min(ICE, na.rm = TRUE),
+    Max = max(ICE, na.rm = TRUE),
+    IQR = IQR(ICE, na.rm = TRUE)
+  )
+
+print(icescores_Senate_summary_stats_2012_2016)
+
+
+icescores_Senate_average_2012_2016 <- icescores_Senate_2012_2016 |>
+  group_by(State) %>%
+  summarise(Average_ICE = mean(ICE, na.rm = TRUE))
+
+
+saveRDS(icescores_Senate_average_2012_2016, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/icescores_Senate_average_2012_2016.rds")
+
+
+
+
+#2017-2021
+
+icescores_Senate_2017_2021 <- icescores_Senate|>
+  filter(Year>2016)
+
+icescores_Senate_summary_stats_2017_2021 <- icescores_Senate_2017_2021 |>
+  summarise(
+    Mean = mean(ICE, na.rm = TRUE),
+    SD = sd(ICE, na.rm = TRUE),
+    Median = median(ICE, na.rm = TRUE),
+    Min = min(ICE, na.rm = TRUE),
+    Max = max(ICE, na.rm = TRUE),
+    IQR = IQR(ICE, na.rm = TRUE)
+  )
+
+print(icescores_Senate_summary_stats_2017_2021)
+
+
+icescores_Senate_average_2017_2021 <- icescores_Senate_2017_2021 |>
+  group_by(State) %>%
+  summarise(Average_ICE = mean(ICE, na.rm = TRUE))
+
+
+
+#saveRDS(icescores_Senate_average_2017_2021, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/icescores_Senate_average_2017_2021.rds")
+```
+
+
+
+#State liberalism Index
+```{r}
+statelib_2012_to_2020_data <- readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/24_C19 Political Determinants Paper/C19 Elections Paper/Output/flipped_statelib_2012_to_2020_data.rds")
+
+statelib_2020 <- statelib_2012_to_2020_data|>
+  filter(Year == 2020)
+
+write.csv(statelib_2020, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/24_C19 Political Determinants Paper/C19 Elections Paper/Output/statelib_2020.csv")
+
+statelib_2012_2016 <- statelib_2012_to_2020_data|>
+  filter(Year<2017)
+
+statelib_2012_2016_average_data <- statelib_2012_2016 |>
+  group_by(State) %>%
+  summarise(Average_Policy_Score = mean(Policy_Score, na.rm = TRUE))
+
+saveRDS(statelib_2012_2016_average_data, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/statelib_2012_to_2016_average_data.rds")
+
+
+
+statelib_2012_2016 <- statelib_2012_to_2020_data|>
+  filter(Year<2017)
+
+statelib_2012_2016_summary_data <- statelib_2012_2016 |>
+  summarise(
+    Mean = mean(Policy_Score, na.rm = TRUE),
+    SD = sd(Policy_Score, na.rm = TRUE),
+    Median = median(Policy_Score, na.rm = TRUE),
+    Min = min(Policy_Score, na.rm = TRUE),
+    Max = max(Policy_Score, na.rm = TRUE),
+    IQR = IQR(Policy_Score, na.rm = TRUE)
+  )
+
+print(statelib_2012_2016_summary_data)
+
+
+statelib_2017_2020_data <- statelib_2012_to_2020_data|>
+  filter(Year>2016)
+
+statelib_2017_2020_summary_data <- statelib_2017_2020_data |>
+  summarise(
+    Mean = mean(Policy_Score, na.rm = TRUE),
+    SD = sd(Policy_Score, na.rm = TRUE),
+    Median = median(Policy_Score, na.rm = TRUE),
+    Min = min(Policy_Score, na.rm = TRUE),
+    Max = max(Policy_Score, na.rm = TRUE),
+    IQR = IQR(Policy_Score, na.rm = TRUE)
+  )
+
+print(statelib_2017_2020_summary_data)
+
+
+#statelib_2017_2020_average_data <- statelib_2017_2020_data |>
+#  group_by(State) %>%
+#  summarise(Average_Policy_Score = mean(Policy_Score, na.rm = TRUE))
+
+#saveRDS(statelib_2017_2020_average_data, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/statelib_2017_2020_average_data.rds")
+
+
+```
+
+#Electoral College
+```{r}
+electoral_college_2016<-readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/electoral_college_2016.rds")
+
+
+
+
+electoral_college_2016_summary_data <- electoral_college_2016 |>
+  summarise(
+    Mean = mean(Score_2016, na.rm = TRUE),
+    SD = sd(Score_2016, na.rm = TRUE),
+    Median = median(Score_2016, na.rm = TRUE),
+    Min = min(Score_2016, na.rm = TRUE),
+    Max = max(Score_2016, na.rm = TRUE),
+    IQR = IQR(Score_2016, na.rm = TRUE)
+  )
+
+
+electoral_college_2020<-readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/electoral_college_2020.rds")
+
+electoral_college_2020_summary_data <- electoral_college_2020 |>
+  summarise(
+    Mean = mean(Score_2020, na.rm = TRUE),
+    SD = sd(Score_2020, na.rm = TRUE),
+    Median = median(Score_2020, na.rm = TRUE),
+    Min = min(Score_2020, na.rm = TRUE),
+    Max = max(Score_2020, na.rm = TRUE),
+    IQR = IQR(Score_2020, na.rm = TRUE)
+  )
+```
+
+
+
+#State Trifecta
+```{r}
+final_state_trifecta_1992_2024 <-readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/24_C19 Political Determinants Paper/C19 Elections Paper/Output/final_state_trifect_1992_2024.rds")
+
+
+#2012-2016
+state_trifecta_2012_2016_data <- final_state_trifecta_1992_2024|>
+  filter(Year>2011 & Year<2017)
+
+
+analyze_party_consistency <- function(data) {
+  data %>%
+    group_by(State) %>%
+    summarise(All_D = all(Party == "D"), All_R = all(Party == "R"), Mixed = any(Party != "D" & Party != "R") | n_distinct(Party) > 1) %>%
+    mutate(Consistency = case_when(All_D ~ "Democrat", All_R ~ "Republican", TRUE ~ "Mixed")) %>%
+    select(State, Consistency)
+}
+
+party_consistency_summary_2012_2016 <- analyze_party_consistency(state_trifecta_2012_2016_data)
+
+party_consistency_summary_2012_2016 <- party_consistency_summary_2012_2016 |>
+  mutate(Consistency = as.factor(Consistency))
+
+
+saveRDS(party_consistency_summary_2012_2016, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/party_consistency_summary_2012_2016.rds")
+
+
+# Compute summary statistics this is overall average
+party_consistency_summary_2012_2016 <- party_consistency_summary_2012_2016 |>
+  summarise(
+    Count_Republican = sum(Consistency == "Republican", na.rm = TRUE),
+    Count_Democrat = sum(Consistency == "Democrat", na.rm = TRUE),
+    Count_Mixed = sum(Consistency == "Mixed", na.rm = TRUE),
+    Mode = as.character(names(sort(table(Consistency), decreasing = TRUE)[1]))
+  )
+
+print(party_consistency_summary_2012_2016)
+
+
+#2017-2021
+state_trifecta_2017_2021_data <- final_state_trifecta_1992_2024|>
+  filter(Year>2016 & Year<2022)
+
+party_consistency_summary_2017_2021 <- analyze_party_consistency(state_trifecta_2017_2021_data)
+
+party_consistency_summary_2017_2021 <- party_consistency_summary_2017_2021 |>
+  mutate(Consistency = as.factor(Consistency))
+
+# Compute summary statistics this is overall average
+party_consistency_summary_2017_2021 <- party_consistency_summary_2017_2021 |>
+  summarise(
+    Count_Republican = sum(Consistency == "Republican", na.rm = TRUE),
+    Count_Democrat = sum(Consistency == "Democrat", na.rm = TRUE),
+    Count_Mixed = sum(Consistency == "Mixed", na.rm = TRUE),
+    Mode = as.character(names(sort(table(Consistency), decreasing = TRUE)[1]))
+  )
+
+print(party_consistency_summary_2017_2021)
+
+
+#saveRDS(party_consistency_summary_2017_2021, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/state_trifecta_2017_2021.rds")
+
+
+
+#now calculate the min, max, IQR for each time period
+count_consistent_status <- function(data) {
+  data %>%
+    group_by(Year, State) %>%
+    summarise(
+      Governor = Party[Branch == "Governor"],
+      Lower_Chamber = Party[Branch %in% c("House", "Assembly")],
+      Senate = Party[Branch == "Senate"],
+      .groups = 'drop'
+    ) %>%
+    mutate(
+      Consistency = case_when(
+        Governor == "D" & Lower_Chamber == "D" & Senate == "D" ~ "Democratic",
+        Governor == "R" & Lower_Chamber == "R" & Senate == "R" ~ "Republican",
+        TRUE ~ "Divided"
+      )
+    ) %>%
+    group_by(Year, Consistency) %>%
+    summarise(Count = n(), .groups = 'drop')
+}
+
+# Define the periods
+periods <- list(
+  "2012-2016" = 2012:2016,
+  "2017-2021" = 2017:2021
+)
+
+# Apply the function to each period and aggregate the counts
+aggregated_results <- lapply(names(periods), function(period_name) {
+  period_years <- periods[[period_name]]
+
+  period_data <- final_state_trifecta_1992_2024 %>%
+    filter(Year %in% period_years)
+
+  # Democratic, Republican, and Divided states
+  period_summary <- count_consistent_status(period_data)
+
+  return(period_summary)
+})
+
+# Combine the aggregated results into a single data frame
+combined_results <- do.call(rbind, aggregated_results)
+combined_results <- combined_results %>%
+  mutate(Percentage = Count / 50 * 100)
+
+# Compute summary statistics for each type of party trifecta over the periods
+summary_stats <- combined_results %>%
+  group_by(Consistency, Period = rep(names(periods), each = nrow(combined_results) / length(periods))) %>%
+  summarise(
+    Mean = mean(Percentage),
+    SD = sd(Percentage),
+    Median = median(Percentage),
+    Min = min(Percentage),
+    Max = max(Percentage),
+    IQR = IQR(Percentage)
+  )
+
+# View the results
+print(summary_stats)
+```
+
+
+```{r}
+final_uninsured_2012_2022 <- readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/24_C19 Political Determinants Paper/C19 Elections Paper/Output/final_uninsured_2012_2022_data.rds") 
+
+
+#2012-2016
+final_uninsured_2012_2016 <-final_uninsured_2012_2022|>
+  filter(Year>2011 & Year<2017)
+
+final_uninsured_2012_2016_average_data <- final_uninsured_2012_2016 |>
+  group_by(State) %>%
+  summarise(Average_Percent_Uninsured_35_64 = mean(Average_Percent_Uninsured_35_64, na.rm = TRUE))
+
+saveRDS(final_uninsured_2012_2016_average_data, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/final_uninsured_2012_2016_average_data.rds") 
+
+final_uninsured_2012_2016_average_data_summary <- final_uninsured_2012_2016_average_data  |>
+  summarise(
+    Mean = mean(`Average_Percent_Uninsured_35_64`, na.rm = TRUE),
+    SD = sd(`Average_Percent_Uninsured_35_64`, na.rm = TRUE),
+    Median = median(`Average_Percent_Uninsured_35_64`, na.rm = TRUE),
+    Min = min(`Average_Percent_Uninsured_35_64`, na.rm = TRUE),
+    Max = max(`Average_Percent_Uninsured_35_64`, na.rm = TRUE),
+    IQR = IQR(`Average_Percent_Uninsured_35_64`, na.rm = TRUE)
+  )
+
+
+#2017-2021
+final_uninsured_2017_2021 <-final_uninsured_2012_2022|>
+  filter(Year>2016 & Year<2022)
+
+final_uninsured_2017_2021_average_data <- final_uninsured_2017_2021 |>
+  group_by(State) %>%
+  summarise(Average_Percent_Uninsured_35_64 = mean(Average_Percent_Uninsured_35_64, na.rm = TRUE))
+
+final_uninsured_2017_2021_average_data_summary <- final_uninsured_2017_2021_average_data  |>
+  summarise(
+    Mean = mean(`Average_Percent_Uninsured_35_64`, na.rm = TRUE),
+    SD = sd(`Average_Percent_Uninsured_35_64`, na.rm = TRUE),
+    Median = median(`Average_Percent_Uninsured_35_64`, na.rm = TRUE),
+    Min = min(`Average_Percent_Uninsured_35_64`, na.rm = TRUE),
+    Max = max(`Average_Percent_Uninsured_35_64`, na.rm = TRUE),
+    IQR = IQR(`Average_Percent_Uninsured_35_64`, na.rm = TRUE)
+  )
+
+
+
+#saveRDS(final_uninsured_2017_2021_average_data, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/final_uninsured_2017_2021_average_data.rds")
+
+
+
+
+```
+
+
+```{r}
+cleaned_state_poverty_2016 <- readRDS(file ="/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper//Output/ACS5_state_poverty_2016.rds" )
+
+cleaned_state_poverty_2016_summary <- cleaned_state_poverty_2016 |>
+  summarise(
+    Mean = mean(`Percent Below Poverty`, na.rm = TRUE)*100,
+    SD = sd(`Percent Below Poverty`, na.rm = TRUE)*100,
+    Median = median(`Percent Below Poverty`, na.rm = TRUE)*100,
+    Min = min(`Percent Below Poverty`, na.rm = TRUE)*100,
+    Max = max(`Percent Below Poverty`, na.rm = TRUE)*100,
+    IQR = IQR(`Percent Below Poverty`, na.rm = TRUE)*100
+  )
+
+
+cleaned_state_poverty_2021 <-readRDS(file ="/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper//Output/ACS5_state_poverty_2021.rds" )
+
+
+cleaned_state_poverty_2021_summary <- cleaned_state_poverty_2021 |>
+  summarise(
+    Mean = mean(`Percent Below Poverty`, na.rm = TRUE)*100,
+    SD = sd(`Percent Below Poverty`, na.rm = TRUE)*100,
+    Median = median(`Percent Below Poverty`, na.rm = TRUE)*100,
+    Min = min(`Percent Below Poverty`, na.rm = TRUE)*100,
+    Max = max(`Percent Below Poverty`, na.rm = TRUE)*100,
+    IQR = IQR(`Percent Below Poverty`, na.rm = TRUE)*100
+  )
+
+```
+
+
+```{r}
+CookPVI_2022_state_scores<-readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/24_C19 Political Determinants Paper/C19 Elections Paper/Output/CookPVI_2022_state_scores.rds")
+```
+
+
+```{r}
+cleaned_state_medicaid<-readRDS(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Output/final_state_medicaid_coverage_years.rds")
+
+
+calculate_coverage_years <- function(implementation_date, end_date, max_score) {
+  if (is.na(implementation_date) || implementation_date > end_date) {
+    return(0)
+  }
+
+  # Calculate full years
+  full_years <- year(end_date) - year(implementation_date)
+
+  # Calculate partial year based on months
+  partial_years <- (yday(end_date) - yday(implementation_date)) / 365
+
+  if (partial_years < 0) {
+    partial_years <- 0
+  }
+
+  # Total points
+  total_points <- full_years + partial_years
+
+  # Cap the score at the specified max_score
+  total_points <- min(total_points, max_score)
+
+  return(total_points)
+}
+
+# Read the original dataset
+state_medicaid <- read_csv(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/24_KFF_medicaid expansion data_data-ZJUAA_1212.csv")
+
+# Clean the dataset
+cleaned_state_medicaid <- state_medicaid %>%
+  mutate(
+    Description = ifelse(is.na(Description), "0", Description), # Replace NA with "0"
+    Implementation_Date = case_when(
+      Description == "0" ~ NA,
+      TRUE ~ mdy(str_extract(Description, "\\d{1,2}/\\d{1,2}/\\d{4}"))
+    ),
+    Implementation_Year = ifelse(is.na(Implementation_Date), NA, year(Implementation_Date)),
+    ACA_Medicaid_Coverage_Years_2014_2016 = sapply(Implementation_Date, calculate_coverage_years, end_date = as.Date("2016-12-31"), max_score = 3)
+  )
+
+# Select relevant columns
+cleaned_state_medicaid_selected_2014_2016 <- cleaned_state_medicaid %>%
+  select(State,
+         Implementation_Date,
+         ACA_Medicaid_Coverage_Years_2014_2016)
+
+saveRDS(cleaned_state_medicaid_selected_2014_2016, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper//Output/state_medicaid_score_2014_2016.rds")
+
+
+cleaned_state_medicaid_selected_2014_2016_summary <- cleaned_state_medicaid_selected_2014_2016  |>
+  summarise(
+    Mean = mean(ACA_Medicaid_Coverage_Years_2014_2016, na.rm = TRUE),
+    SD = sd(ACA_Medicaid_Coverage_Years_2014_2016, na.rm = TRUE),
+    Median = median(ACA_Medicaid_Coverage_Years_2014_2016, na.rm = TRUE),
+    Min = min(ACA_Medicaid_Coverage_Years_2014_2016, na.rm = TRUE),
+    Max = max(ACA_Medicaid_Coverage_Years_2014_2016, na.rm = TRUE),
+    IQR = IQR(ACA_Medicaid_Coverage_Years_2014_2016, na.rm = TRUE)
+  )
+
+
+calculate_coverage_years <- function(implementation_date, end_date, max_score) {
+  if (is.na(implementation_date) || implementation_date > end_date) {
+    return(0)
+  }
+
+  # Calculate full years
+  full_years <- year(end_date) - year(implementation_date)
+
+  # Calculate partial year based on months
+  partial_years <- (yday(end_date) - yday(implementation_date)) / 365
+
+  if (partial_years < 0) {
+    partial_years <- 0
+  }
+
+  # Total points
+  total_points <- full_years + partial_years
+
+  # Cap the score at the specified max_score
+  total_points <- min(total_points, max_score)
+
+  return(total_points)
+}
+
+# Read the original dataset
+state_medicaid <- read_csv(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Data/24_KFF_medicaid expansion data_data-ZJUAA_1212.csv")
+
+# Clean the dataset and calculate coverage years for both periods
+cleaned_state_medicaid <- state_medicaid %>%
+  mutate(
+    Description = ifelse(is.na(Description), "0", Description), # Replace NA with "0"
+    Implementation_Date = case_when(
+      Description == "0" ~ NA,
+      TRUE ~ mdy(str_extract(Description, "\\d{1,2}/\\d{1,2}/\\d{4}"))
+    ),
+    Implementation_Year = ifelse(is.na(Implementation_Date), NA, year(Implementation_Date)),
+    ACA_Medicaid_Coverage_Years_2014_2016 = sapply(Implementation_Date, calculate_coverage_years, end_date = as.Date("2016-12-31"), max_score = 3),
+    ACA_Medicaid_Coverage_Years_2017_2021 = sapply(Implementation_Date, function(date) {
+      if (is.na(date) || date > as.Date("2021-12-31")) {
+        return(0)
+      } else if (date <= as.Date("2016-12-31")) {
+        return(5)
+      } else {
+        return(calculate_coverage_years(date, as.Date("2021-12-31"), max_score = 5))
+      }
+    })
+  )
+
+# Select relevant columns
+cleaned_state_medicaid_selected <- cleaned_state_medicaid %>%
+  select(State,
+         Implementation_Date,
+         ACA_Medicaid_Coverage_Years_2014_2016,
+         ACA_Medicaid_Coverage_Years_2017_2021)
+
+
+cleaned_state_medicaid_selected_summary <- cleaned_state_medicaid_selected |>
+  summarise(
+    Mean = mean(ACA_Medicaid_Coverage_Years_2017_2021, na.rm = TRUE),
+    SD = sd(ACA_Medicaid_Coverage_Years_2017_2021, na.rm = TRUE),
+    Median = median(ACA_Medicaid_Coverage_Years_2017_2021, na.rm = TRUE),
+    Min = min(ACA_Medicaid_Coverage_Years_2017_2021, na.rm = TRUE),
+    Max = max(ACA_Medicaid_Coverage_Years_2017_2021, na.rm = TRUE),
+    IQR = IQR(ACA_Medicaid_Coverage_Years_2017_2021, na.rm = TRUE)
+  )
+
+
+
+
+
+#for 2014-2021
+cleaned_state_medicaid_summary <- cleaned_state_medicaid |>
+  summarise(
+    Mean = mean(ACA_Medicaid_Coverage_Years, na.rm = TRUE),
+    SD = sd(ACA_Medicaid_Coverage_Years, na.rm = TRUE),
+    Median = median(ACA_Medicaid_Coverage_Years, na.rm = TRUE),
+    Min = min(ACA_Medicaid_Coverage_Years, na.rm = TRUE),
+    Max = max(ACA_Medicaid_Coverage_Years, na.rm = TRUE),
+    IQR = IQR(ACA_Medicaid_Coverage_Years, na.rm = TRUE)
+  )
+
+
+```
+
+
+
+```{r}
+
+#When re-running regression models, Run all of this code which cleans and sets the data up for analysis
+# Outcomes
+breast <- readRDS(file.path(data_loc, "clean", "breast_final_data.rds")) %>%
+  clean_names() %>% mutate(type = "breast")
+
+cervix <- readRDS(file.path(data_loc, "clean", "cervix_final_data.rds")) %>%
+  clean_names() %>% mutate(type = "cervix")
+ 
+cr <- readRDS(file.path(data_loc, "clean", "colorectal_final_data.rds")) %>%
+  clean_names() %>% mutate(type = "colorectal")
+
+reg_dist <- data.table::rbindlist(list(breast, cervix, cr), use.names = TRUE, fill = TRUE) %>%
+  mutate(stage_percentage = stage_percentage/100) %>%
+  filter(stage %in% c("Regional", "Distant")) %>% group_by(state, type) %>% 
+  summarise(across(c("stage_percentage"), ~sum(.x, na.rm=T))) %>% 
+  pivot_longer(cols = c("stage_percentage")) %>% mutate(var_lab = paste0(name, "_", type)) %>% 
+  dplyr::select(-type, -name) %>% ungroup() %>% arrange(var_lab, state) %>% mutate(years = "2017-2021")
+
+local <- data.table::rbindlist(list(breast, cervix, cr), use.names = TRUE, fill = TRUE) %>%
+  mutate(stage_percentage = stage_percentage/100) %>%
+  filter(stage %in% c("Local")) %>% group_by(state, type) %>% 
+  summarise(across(c("stage_percentage"), ~sum(.x, na.rm=T))) %>% 
+  pivot_longer(cols = c("stage_percentage")) %>% mutate(var_lab = paste0(name,"_local_", type)) %>% 
+  dplyr::select(-type, -name) %>% ungroup() %>% arrange(var_lab, state)  %>% mutate(years = "2017-2021")
+
+premature <- readRDS(file.path(data_loc, "clean", "premature_cancer_final_data_2017_to_2021.rds")) %>%
+  clean_names() %>% mutate(var_lab = "premature_avg_age_adjusted_rate") %>% 
+  dplyr::select(state, var_lab, value = avg_age_adjusted_rate)  %>% mutate(years = "2017-2021")
+
+# Exposures
+dw_nom_house16 <- readRDS(file.path(data_loc, "clean", "icescores_House_average_2012_2016.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "dw_nom_ice_house1216") %>% dplyr::select(state, var_lab, value = average_ice)  %>% mutate(years = "2012-2016")
+dw_nom_house21 <- readRDS(file.path(data_loc, "clean", "icescores_House_average_2017_2021.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "dw_nom_ice_house1721") %>% dplyr::select(state, var_lab, value = average_ice)  %>% mutate(years = "2017-2021")
+
+dw_nom_senate16 <- readRDS(file.path(data_loc, "clean", "icescores_Senate_average_2012_2016.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "dw_nom_ice_senate1216") %>% dplyr::select(state, var_lab, value = average_ice)  %>% mutate(years = "2012-2026")
+dw_nom_senate21 <- readRDS(file.path(data_loc, "clean", "icescores_Senate_average_2017_2021.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "dw_nom_ice_senate1721") %>% dplyr::select(state, var_lab, value = average_ice)  %>% mutate(years = "2017-2021")
+
+trifecta16 <- readRDS(file.path(data_loc, "clean", "party_consistency_summary_2012_2016.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "trifecta1216") %>% dplyr::select(state, var_lab, value = consistency) %>% 
+  mutate(value = case_when(value == "Republican" ~-1, 
+                           value == "Mixed" ~0, 
+                           value == "Democrat" ~1)) %>% mutate(years = "2012-2016")
+trifecta21 <- readRDS(file.path(data_loc, "clean", "state_trifecta_2017_2021.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "trifecta1721") %>% dplyr::select(state, var_lab, value = consistency) %>% 
+  mutate(value = case_when(value == "Republican" ~-1, 
+                           value == "Mixed" ~0, 
+                           value == "Democrat" ~1)) %>% mutate(years = "2017-2021")
+
+liberalism16 <- readRDS(file.path(data_loc, "clean", "statelib_2012_to_2016_average_data.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "state_liberalism1216") %>% dplyr::select(state, var_lab, value = average_policy_score) %>% mutate(years = "2012-2016")
+liberalism20 <- readRDS(file.path(data_loc, "clean", "statelib_2017_2020_average_data.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "state_liberalism1720") %>% dplyr::select(state, var_lab, value = average_policy_score) %>% mutate(years = "2017-2020")
+
+cook_pvi <- readRDS(file.path(data_loc, "clean", "CookPVI_2022_state_scores.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "cook_pvi") %>% dplyr::select(state, var_lab, value = pvi) %>% mutate(years = "2022")
+
+electoral16 <- readRDS(file.path(data_loc, "clean", "electoral_college_2016.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "electoral_score16") %>% dplyr::select(state, var_lab, value = score_2016) %>% mutate(years = "2016")
+electoral20 <- readRDS(file.path(data_loc, "clean", "electoral_college_2020.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "electoral_score20") %>% dplyr::select(state, var_lab, value = score_2020)%>% mutate(years = "2020")
+
+
+exp_data16 <- data.table::rbindlist(list(dw_nom_house16, dw_nom_senate16, trifecta16, liberalism16, electoral16)) 
+exp_data21 <- data.table::rbindlist(list(cook_pvi, dw_nom_house21, dw_nom_senate21, trifecta21, liberalism20, electoral20))
+
+# Covariates
+poverty16 <- readRDS(file.path(data_loc, "clean", "ACS5_state_poverty_2016.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "pct_below_poverty1216") %>% 
+  dplyr::select(state, var_lab, value = percent_below_poverty) %>% mutate(years = "2012-2016")
+poverty21 <- readRDS(file.path(data_loc, "clean", "ACS5_state_poverty_2021.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "pct_below_poverty1721") %>% 
+  dplyr::select(state, var_lab, value = percent_below_poverty) %>% mutate(years = "2017-2021")
+
+medicaid16 <- readRDS(file.path(data_loc, "clean", "state_medicaid_score_2014_2016.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "aca_medicaid_coverage1416") %>% dplyr::select(state, var_lab, value = aca_medicaid_coverage_years_2014_2016) %>% 
+  mutate(years = "2014-2016")
+medicaid21 <- readRDS(file.path(data_loc, "clean", "final_state_medicaid_coverage_years.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "aca_medicaid_coverage1721") %>% dplyr::select(state, var_lab, value = aca_medicaid_coverage_years)%>% 
+  mutate(years = "2017-2021")
+
+uninsured16 <- readRDS(file.path(data_loc, "clean", "final_uninsured_2012_2016_average_data.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "uninsured1216") %>% dplyr::select(state, var_lab, value = average_percent_uninsured_35_64) %>%
+  mutate(value = value/100)%>% 
+  mutate(years = "2012-2016")
+uninsured21 <- readRDS(file.path(data_loc, "clean", "final_uninsured_2017_2021_average_data.rds")) %>% clean_names() %>% 
+  mutate(var_lab = "uninsured1721") %>% dplyr::select(state, var_lab, value = average_percent_uninsured_35_64) %>%
+  mutate(value = value/100)%>% 
+  mutate(years = "2017-2021")
+
+cov_data16 <- data.table::rbindlist(list(poverty16, medicaid16, uninsured16))
+cov_data21 <- data.table::rbindlist(list(poverty21, medicaid21, uninsured21))
+
+# Variable Lists
+exp_vars <- c("dw_nom_ice_house1216", "dw_nom_ice_house1721",
+              "dw_nom_ice_senate1216", "dw_nom_ice_senate1721", 
+              "trifecta1216", "trifecta1721", 
+              "state_liberalism1216", "state_liberalism1720",
+              "electoral_score16", "electoral_score20")
+outcome_vars <- c(paste0("stage_percentage_", c("breast", "cervix", "colorectal")), 
+                  paste0("stage_percentage_local_", c("breast", "cervix", "colorectal")), 
+                  "premature_avg_age_adjusted_rate")
+
+outcome_vars_rate <- c(paste0("age_std_estimate_", c("breast", "cervix", "colorectal")))
+cov_vars <- c("pct_below_poverty1216", "pct_below_poverty1721",
+              "uninsured1216", "uninsured1721",
+              "aca_medicaid_coverage1416", "aca_medicaid_coverage1721")
+
+ data.table::rbindlist(list(exp_data16, exp_data21, cov_data16, cov_data21, reg_dist, local, premature), 
+                                      use.names = TRUE, fill = TRUE) %>% pull(var_lab) %>% unique() ->varscomb
+
+var_levs <- c(exp_vars, cov_vars, outcome_vars, outcome_vars_rate)
+
+all_dat_long <- data.table::rbindlist(list(exp_data16, exp_data21, cov_data16, cov_data21, reg_dist, local, premature), 
+                                      use.names = TRUE, fill = TRUE) %>%
+  mutate(var_lab = factor(var_lab, levels = var_levs, ordered = TRUE))  %>% 
+  arrange(var_lab) %>% 
+  mutate(var_type = case_when(var_lab %in% exp_vars ~ "exp", 
+                              var_lab %in% outcome_vars ~ "outcome",
+                             # var_lab %in% outcome_vars_rate ~ "outcome_rate",
+                              var_lab %in% cov_vars ~ "cov")) %>%
+  mutate(state = if_else(state %in% c("Washington, D.C.", "District Of Columbia"), "District of Columbia", state))
+# Wide
+all_dat_cross <- all_dat_long %>% dplyr::select(-var_type) %>% 
+  arrange(var_lab) %>%
+  pivot_wider(id_cols = state, names_from = "var_lab", values_from = "value") %>% 
+  mutate(across(c(exp_vars, outcome_vars, cov_vars), ~as.numeric(as.character(.x))))
+
+west_virginia_row <- all_dat_cross %>% filter(state == "West Virginia")
+west_virgina_row <- all_dat_cross %>% filter(state == "West Virgina")
+
+# Update the trifecta columns in the correct row with the values from the incorrectly spelled row
+west_virginia_row <- west_virginia_row %>%
+  mutate(trifecta1216 = west_virgina_row$trifecta1216,
+         trifecta1721 = west_virgina_row$trifecta1721)
+#combine back
+all_dat_cross <- all_dat_cross %>%
+  filter(state != "West Virginia" & state != "West Virgina") %>%
+  bind_rows(west_virginia_row)
+
+#all_dat_cross is the final cross-sectional dataset ready for analysis
+
+
+```
+
+
+#Regression results 2017-2021 (non-lagged)
+```{r}
+#This code chunk cleans up data some more and then runs the cross-sectional results 2017-2021
+
+#to start this code chunk you need the all_dat_cross dataset in the environment 
+
+colnames(all_dat_cross) <- ifelse(grepl("local", colnames(all_dat_cross)), 
+                                    colnames(all_dat_cross), 
+                                    gsub("stage_percentage_", "stage_percentage_RD_", colnames(all_dat_cross)))
+
+all_dat_cross$trifecta1216 <- as.factor(all_dat_cross$trifecta1216)
+all_dat_cross$trifecta1721 <- as.factor(all_dat_cross$trifecta1721)
+
+health_metrics <- c("stage_percentage_RD_breast", "stage_percentage_RD_cervix", 
+                    "stage_percentage_RD_colorectal", "stage_percentage_local_breast", 
+                    "stage_percentage_local_cervix", "stage_percentage_local_colorectal", 
+                    "premature_avg_age_adjusted_rate")
+
+
+
+exposures_2016 <- c("dw_nom_ice_house1216","dw_nom_ice_senate1216", "trifecta1216", "state_liberalism1216", "electoral_score16")
+
+exposures_2021 <- c("dw_nom_ice_house1721", "dw_nom_ice_senate1721", "trifecta1721", "state_liberalism1720","electoral_score20")
+
+
+covariates_2016 <- c("pct_below_poverty1216", "uninsured1216", "aca_medicaid_coverage1416")
+
+
+covariates_2016_poverty <- "pct_below_poverty1216"
+
+covariates_2016_health_insurance <- c("uninsured1721", "aca_medicaid_coverage1721")
+
+
+covariates_2021<- c("pct_below_poverty1721", "uninsured1721", "aca_medicaid_coverage1721")
+
+covariates_2021_poverty<- "pct_below_poverty1721"
+covariates_2021_health<- c("uninsured1721", "aca_medicaid_coverage1721")
+
+#standardize covariates and exposures
+all_vars <- c(exposures_2016, exposures_2021, covariates_2016, covariates_2021, covariates_2021_poverty, covariates_2021_health, covariates_2016_health_insurance, covariates_2016_poverty)
+
+numeric_vars <- all_vars[sapply(all_dat_cross[all_vars], is.numeric)]
+# Standardize 
+standardized_data <- all_dat_cross %>%
+  mutate(across(all_of(numeric_vars), scale))|>
+  mutate(stage_percentage_RD_breast = stage_percentage_RD_breast*100,
+         stage_percentage_RD_cervix = stage_percentage_RD_cervix*100,
+         stage_percentage_RD_colorectal = stage_percentage_RD_colorectal*100,
+         stage_percentage_local_breast = stage_percentage_local_breast*100,
+         stage_percentage_local_cervix = stage_percentage_local_cervix*100,
+         stage_percentage_local_colorectal = stage_percentage_local_colorectal*100)
+    
+
+run_unadjusted_models <- function(df, health_metrics, exposures) {
+  results <- list()
+  for (health in health_metrics) {
+    for (exposure in c(exposures)) {
+      cat("Running model for", health, "with exposure", exposure, "\n")
+      valid_data <- df[!is.na(df[[health]]) & !is.na(df[[exposure]]), c(health, exposure)]
+      if (length(unique(valid_data[[exposure]])) >= 2) {
+        model <- lm(as.formula(paste(health, "~", exposure)), data = valid_data)
+        summary_model <- summary(model)
+        conf_int <- confint(model)
+        tidy_result <- broom::tidy(model)
+
+        # Ensure the confidence intervals are correctly assigned to each term
+        tidy_result$conf_low <- conf_int[tidy_result$term, 1]
+        tidy_result$conf_high <- conf_int[tidy_result$term, 2]
+
+        tidy_result$health_metric <- health
+        tidy_result$exposure <- exposure
+        results[[paste(health, exposure, sep = "_")]] <- tidy_result
+      } else {
+        cat("Skipping", exposure, "for", health, "due to insufficient levels.\n")
+      }
+    }
+  }
+  results_df <- do.call(rbind, results)
+  return(results_df)
+}
+
+unadjusted_results <- run_unadjusted_models(standardized_data, health_metrics, exposures_2021)
+
+kable(unadjusted_results, digits = 3, caption = "Unadjusted Model Results")
+
+
+#write.csv(unadjusted_results, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Political Cancer Analysis/outputs/unadjusted_results_2021.csv", row.names = FALSE)
+
+
+
+
+
+# Function to run adjusted models
+run_adjusted_models <- function(df, health_metrics, exposures, covariates) {
+  results <- list()
+  for (health in health_metrics) {
+    for (exposure in c(exposures)) {
+      cat("Running model for", health, "with exposure", exposure, "\n")
+      valid_data <- df[!is.na(df[[health]]) & !is.na(df[[exposure]]), c(health, exposure, covariates)]
+      if (length(unique(valid_data[[exposure]])) >= 2) {
+        formula <- as.formula(paste(health, "~", exposure, "+", paste(covariates, collapse = "+")))
+        model <- lm(formula, data = valid_data)
+        summary_model <- summary(model)
+        conf_int <- confint(model)
+        tidy_result <- broom::tidy(model)
+
+        # Ensure the confidence intervals are correctly assigned to each term
+        tidy_result$conf_low <- conf_int[rownames(conf_int) %in% tidy_result$term, 1]
+        tidy_result$conf_high <- conf_int[rownames(conf_int) %in% tidy_result$term, 2]
+
+        tidy_result$health_metric <- health
+        tidy_result$exposure <- exposure
+        results[[paste(health, exposure, sep = "_")]] <- tidy_result
+      } else {
+        cat("Skipping", exposure, "for", health, "due to insufficient levels.\n")
+      }
+    }
+  }
+  results_df <- do.call(rbind, results)
+  return(results_df)
+}
+
+
+#This is the main model with all poverty and health insurance covariates
+adjusted_results <- run_adjusted_models(standardized_data, health_metrics, exposures_2021, covariates_2021)
+
+#This is the main model with only poverty covariates
+adjusted_results_poverty <- run_adjusted_models(standardized_data, health_metrics, exposures_2021, covariates_2021_poverty)
+
+
+#This is the main model with only health insurance covariates
+adjusted_results_health <- run_adjusted_models(standardized_data, health_metrics, exposures_2021, covariates_2021_health)
+
+
+# Clean up the data frame
+kable(adjusted_results , digits = 3, caption = "Adjusted Model Results 2021")
+
+kable(adjusted_results_poverty , digits = 3, caption = "Adjusted Model Results 2021 with only poverty covariates")
+
+kable(adjusted_results_health , digits = 3, caption = "Adjusted Model Results 2021 with only health insurance covariates")
+
+
+#write.csv(adjusted_results, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Political Cancer Analysis/outputs/adjusted_results_2021.csv", row.names = FALSE)
+
+#write.csv(adjusted_results_poverty, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Political Cancer Analysis/outputs/adjusted_results_2021_poverty.csv", row.names = FALSE)
+
+#write.csv(adjusted_results_health, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Political Cancer Analysis/outputs/adjusted_results_2021_health.csv", row.names = FALSE)
+
+```
+
+#forest plot
+```{r}
+
+#run the entire code chunk, which should print off the forest plot
+
+run_unadjusted_models <- function(df, health_metrics, exposures) {
+  results <- list()
+  for (health in health_metrics) {
+    for (exposure in c(exposures)) {
+      cat("Running model for", health, "with exposure", exposure, "\n")
+      valid_data <- df[!is.na(df[[health]]) & !is.na(df[[exposure]]), c(health, exposure)]
+      if (length(unique(valid_data[[exposure]])) >= 2) {
+        model <- lm(as.formula(paste(health, "~", exposure)), data = valid_data)
+        summary_model <- summary(model)
+        conf_int <- confint(model)
+        tidy_result <- broom::tidy(model)
+
+        tidy_result$conf_low <- conf_int[tidy_result$term, 1]
+        tidy_result$conf_high <- conf_int[tidy_result$term, 2]
+
+        tidy_result$health_metric <- health
+        tidy_result$exposure <- exposure
+        results[[paste(health, exposure, sep = "_")]] <- tidy_result
+      } else {
+        cat("Skipping", exposure, "for", health, "due to insufficient levels.\n")
+      }
+    }
+  }
+  results_df <- do.call(rbind, results)
+  return(results_df)
+}
+
+unadjusted_results <- run_unadjusted_models(standardized_data, health_metrics, exposures_2021)
+
+
+unadjusted_results <- unadjusted_results %>%
+  rename(conf.low = conf_low, conf.high = conf_high)
+
+run_adjusted_models <- function(data, health_metrics, exposures, covariates) {
+  results_list <- list()
+
+  for (health_metric in health_metrics) {
+    for (exposure in exposures) {
+      formula_str <- paste(health_metric, "~", exposure)
+      if (!is.null(covariates)) {
+        formula_str <- paste(formula_str, "+", paste(covariates, collapse = " + "))
+      }
+      formula_obj <- as.formula(formula_str)
+
+      model <- lm(formula_obj, data = data)  # Or glm, etc.
+
+
+      results_list[[paste(health_metric, exposure, sep = "_")]] <- model # Change 1: Store model directly
+
+      # Use 'attr' to attach metadata to the model object.
+      attr(results_list[[paste(health_metric, exposure, sep = "_")]], "health_metric") <- health_metric
+      attr(results_list[[paste(health_metric, exposure, sep = "_")]], "exposure") <- exposure
+      attr(results_list[[paste(health_metric, exposure, sep = "_")]], "covariates") <- paste(covariates, collapse = ", ")
+
+    }
+  }
+  return(results_list)
+}
+
+#This is the main model with all poverty and health insurance covariates
+adjusted_results <- run_adjusted_models(standardized_data, health_metrics, exposures_2021, covariates_2021)
+
+#This is the main model with only poverty covariates
+adjusted_results_poverty <- run_adjusted_models(standardized_data, health_metrics, exposures_2021, covariates_2021_poverty)
+
+
+#This is the main model with only health insurance covariates
+adjusted_results_health <- run_adjusted_models(standardized_data, health_metrics, exposures_2021, covariates_2021_health)
+
+# --- Modified extract_model_info (Handles BOTH adjusted and unadjusted) ---
+extract_model_info <- function(results, model_name) {
+  if (is.list(results) && all(sapply(results, inherits, "lm"))) {
+    results_df <- map_dfr(results, function(result) {
+      tidy_data <- tidy(result, conf.int = TRUE)
+
+      filtered_data <- tidy_data %>%
+        # Corrected filter: Use grepl to match the base variable name
+        filter(grepl(paste0("^", attr(result, "exposure")), term))
+
+      filtered_data <- filtered_data %>%
+        mutate(
+          health_metric = attr(result, "health_metric"),
+          exposure = attr(result, "exposure"),
+          covariates = attr(result, "covariates"),
+          model_name = model_name
+        )
+      return(filtered_data)
+    })
+  } else if (is.data.frame(results)) {
+    results_df <- results %>%
+      filter(term != "(Intercept)") %>%
+      mutate(model_name = model_name)
+  } else {
+    stop("Input 'results' must be a list of lm objects or a data frame.")
+  }
+  return(results_df)
+}
+
+# Extract the information:
+all_results <- bind_rows(
+  extract_model_info(adjusted_results, "Full Model"),
+  extract_model_info(adjusted_results_poverty, "Poverty Only"),
+  extract_model_info(adjusted_results_health, "Health Insurance Only"),
+  extract_model_info(unadjusted_results, "Null Model") #Add null model
+) |> 
+  filter(!grepl("local", health_metric, ignore.case = TRUE)) #filter out local
+
+
+
+desired_order <- c(
+  "trifecta17210", # Mixed State Trifecta
+  "trifecta17211", # Democratic State Trifecta
+  "dw_nom_ice_senate1721",
+  "dw_nom_ice_house1721",
+  "state_liberalism1720",
+  "electoral_score20"
+)
+
+
+# Helper function to combine exposure and term
+combine_exposure_term <- function(exposure, term) {
+    if (grepl("^trifecta", exposure)) {
+      return(term) #For trifecta, just paste the variable, we can combine later
+  } else{
+    return(paste(exposure))
+  }
+}
+
+
+# Create combined_term and convert to factor
+all_results <- all_results %>%
+  mutate(
+    combined_term = map2_chr(exposure, term, combine_exposure_term),  
+    combined_term = factor(combined_term, levels = desired_order)  
+  )
+
+
+# Reverse the factor levels to ensure "Null Model" is plotted on top
+all_results$model_name <- factor(
+  all_results$model_name,
+  levels = c("Full Model","Health Insurance Only","Poverty Only", "Null Model")
+)
+
+
+custom_colors <- setNames(c("#E41A1C", "#984EA3","#377EB8", "#4DAF4A"),
+                          c("Full Model","Health Insurance Only","Poverty Only", "Null Model"))
+
+
+custom_labels <- c(
+  "trifecta17210" = "State Trifecta: Mixed vs. R",
+  "trifecta17211" = "State Trifecta: D vs. R",  
+  "dw_nom_ice_senate1721" = "DW-Nominate: US Senate",
+  "dw_nom_ice_house1721" = "DW-Nominate: US House",
+  "state_liberalism1720" = "State liberalism Index",
+  "electoral_score20" = "Electoral college score"
+)
+
+
+all_results$health_metric <- factor(all_results$health_metric, levels = c(
+  "stage_percentage_RD_breast",
+  "stage_percentage_RD_cervix",
+  "stage_percentage_RD_colorectal",
+  "premature_avg_age_adjusted_rate"
+))
+
+# Create a named vector for the labels
+health_metric_labels <- c(
+    "premature_avg_age_adjusted_rate" = "Premature Cancer Mortality Rate",
+    "stage_percentage_RD_breast" = "Breast",
+    "stage_percentage_RD_cervix" = "Cervix",
+    "stage_percentage_RD_colorectal" = "Colorectal"
+)
+
+
+#forest plot code
+forest_plot <- ggplot(all_results, aes(x = estimate, y = combined_term, color = model_name)) +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_errorbarh(
+    aes(xmin = conf.low, xmax = conf.high),
+    height = 0.2,
+    position = position_dodge(width = 0.5)
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+  facet_wrap(~ health_metric, scales = "free_x", nrow = 1, ncol = 4, 
+             labeller = labeller(health_metric = health_metric_labels)) +
+  labs(
+    title = "",
+    x = "",
+    y = "",
+    color = "Model"
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = "bottom",
+    axis.text.y = element_text(size = 7),
+    strip.text = element_text(size = 8),
+    strip.background = element_blank()  # Remove the box around facet labels
+  ) +
+  scale_color_manual(values = custom_colors) +
+  scale_y_discrete(labels = custom_labels) +
+  guides(color = guide_legend(reverse = TRUE))
+
+print(forest_plot)
+
+library(svglite)
+ggsave(filename = "CrosssectionalForestPlotExport.svg", plot = forest_plot, width = 16, height = 12)
+
+ggsave(
+  filename = "ForestPlot_LetterSize_Landscape_legend_fixed.pdf", 
+  plot = forest_plot,                              
+  device = "pdf",                                   
+  width = 11,                                       
+  height = 8.5,                                    
+  units = "in"                                      
+)
+
+```
+
+
+
+
+
+
+
+#clean up cvs
+```{r}
+unadjusted_results_2021 <-read_csv(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Political Cancer Analysis/outputs/unadjusted_results_2021.csv")
+
+# Clean up the data frame
+cleaned_unadjusted_results_2021 <- unadjusted_results_2021 %>%
+  select(-std.error, -statistic) %>%  # Remove unnecessary columns
+  filter(term != "(Intercept)")
+
+cleaned_unadjusted_results_2021 <- cleaned_unadjusted_results_2021 %>%
+  mutate(conf_interval = paste0("(", round(conf_low, 2), ", ", round(conf_high, 2), ")")) %>%
+  select(-conf_low, -conf_high)
+
+
+
+write.csv(cleaned_unadjusted_results_2021, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Political Cancer Analysis/outputs/cleaned_unadjusted_results_2021.csv")
+
+
+
+
+adjusted_results_2021 <-read_csv(file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Political Cancer Analysis/outputs/adjusted_results_2021.csv")
+
+# Clean up the data frame
+cleaned_adjusted_results_2021 <- adjusted_results_2021 |>
+  select(-std.error, -statistic) |>  # Remove unnecessary columns
+  filter(term != "(Intercept)")
+
+cleaned_adjusted_results_2021 <- cleaned_adjusted_results_2021 |>
+  mutate(conf_interval = paste0("(", round(conf_low, 2), ", ", round(conf_high, 2), ")")) |>
+  select(-conf_low, -conf_high)
+
+write.csv(cleaned_adjusted_results_2021, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Political Cancer Analysis/outputs/cleaned_adjusted_results_2021.csv")
+
+cleaned_adjusted_poverty_results_2021 <- adjusted_results_poverty |> 
+  select(-std.error, -statistic) |>
+  filter(term != "(Intercept)")
+
+cleaned_adjusted_poverty_results_2021 <- cleaned_adjusted_poverty_results_2021 |>
+  mutate(conf_interval = paste0("(", round(conf_low, 2), ", ", round(conf_high, 2), ")")) |>
+  select(-conf_low, -conf_high)
+
+write.csv(cleaned_adjusted_poverty_results_2021, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Political Cancer Analysis/outputs/cleaned_adjusted_poverty_results_2021.csv")
+
+cleaned_adjusted_health_results_2021 <- adjusted_results_health |>
+  select(-std.error, -statistic) |>
+  filter(term != "(Intercept)")
+
+cleaned_adjusted_health_results_2021 <- cleaned_adjusted_health_results_2021 |>
+  mutate(conf_interval = paste0("(", round(conf_low, 2), ", ", round(conf_high, 2), ")")) |>
+  select(-conf_low, -conf_high)
+
+write.csv(cleaned_adjusted_health_results_2021, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Political Cancer Analysis/outputs/cleaned_adjusted_health_results_2021.csv")
+
+```
+
+#lagged cross-sectional results
+```{r}
+
+#old code don't need to run it can just skip to the next code chunk
+unadjusted_results_2016 <- run_unadjusted_models(standardized_data, health_metrics, exposures_2016)
+
+kable(unadjusted_results, digits = 3, caption = "Unadjusted Model Results")
+
+
+# Clean up the data frame
+cleaned_unadjusted_results_2016 <- unadjusted_results_2016 |>
+  select(-std.error, -statistic) |>  
+  filter(term != "(Intercept)")
+
+cleaned_unadjusted_results_2016 <- cleaned_unadjusted_results_2016 |>
+  mutate(conf_interval = paste0("(", round(conf_low, 2), ", ", round(conf_high, 2), ")")) |>
+  select(-conf_low, -conf_high)
+
+
+
+write.csv(cleaned_unadjusted_results_2016, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Political Cancer Analysis/outputs/cleaned_unadjusted_results_2016_lagged.csv", row.names = FALSE)
+
+
+
+# Clean up the data frame
+cleaned_adjusted_results_2016 <- adjusted_results_2016 |>
+  select(-std.error, -statistic) |> 
+  filter(term != "(Intercept)")
+
+cleaned_adjusted_results_2016 <- cleaned_adjusted_results_2016 |>
+  mutate(conf_interval = paste0("(", round(conf_low, 2), ", ", round(conf_high, 2), ")")) |>
+  select(-conf_low, -conf_high)
+
+
+
+write.csv(cleaned_adjusted_results_2016, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Political Cancer Analysis/outputs/cleaned_adjusted_results_2016_lagged.csv", row.names = FALSE)
+
+
+
+
+```
+
+
+#lagged analysis forest plot
+```{r}
+
+
+run_unadjusted_models <- function(df, health_metrics, exposures) {
+  results <- list()
+  for (health in health_metrics) {
+    for (exposure in c(exposures)) {
+      cat("Running model for", health, "with exposure", exposure, "\n")
+      valid_data <- df[!is.na(df[[health]]) & !is.na(df[[exposure]]), c(health, exposure)]
+      if (length(unique(valid_data[[exposure]])) >= 2) {
+        model <- lm(as.formula(paste(health, "~", exposure)), data = valid_data)
+        summary_model <- summary(model)
+        conf_int <- confint(model)
+        tidy_result <- broom::tidy(model)
+
+        tidy_result$conf_low <- conf_int[tidy_result$term, 1]
+        tidy_result$conf_high <- conf_int[tidy_result$term, 2]
+
+        tidy_result$health_metric <- health
+        tidy_result$exposure <- exposure
+        results[[paste(health, exposure, sep = "_")]] <- tidy_result
+      } else {
+        cat("Skipping", exposure, "for", health, "due to insufficient levels.\n")
+      }
+    }
+  }
+  results_df <- do.call(rbind, results)
+  return(results_df)
+}
+
+lagged_unadjusted_results_2016 <- run_unadjusted_models(standardized_data, health_metrics, exposures_2016)
+
+unadjusted_results <- lagged_unadjusted_results_2016 |>
+  rename(conf.low = conf_low, conf.high = conf_high)
+
+run_adjusted_models <- function(data, health_metrics, exposures, covariates) {
+  results_list <- list()
+
+  for (health_metric in health_metrics) {
+    for (exposure in exposures) {
+      formula_str <- paste(health_metric, "~", exposure)
+      if (!is.null(covariates)) {
+        formula_str <- paste(formula_str, "+", paste(covariates, collapse = " + "))
+      }
+      formula_obj <- as.formula(formula_str)
+
+      model <- lm(formula_obj, data = data)  # Or glm, etc.
+
+
+      results_list[[paste(health_metric, exposure, sep = "_")]] <- model # Change 1: Store model directly
+
+      # Use 'attr' to attach metadata to the model object.
+      attr(results_list[[paste(health_metric, exposure, sep = "_")]], "health_metric") <- health_metric
+      attr(results_list[[paste(health_metric, exposure, sep = "_")]], "exposure") <- exposure
+      attr(results_list[[paste(health_metric, exposure, sep = "_")]], "covariates") <- paste(covariates, collapse = ", ")
+
+    }
+  }
+  return(results_list)
+}
+
+
+
+
+###LAGGED ADJUSTED MODELS, clean up and save as .csv
+lagged_adjusted_results_2016 <- run_adjusted_models(standardized_data, health_metrics, exposures_2016, covariates_2016)#this is the full model
+
+
+adjusted_results_df <- extract_model_info(lagged_adjusted_results_2016, model_name = "Full Model") # Or whatever name is appropriate
+
+# Clean up the data frame
+cleaned_full_model_adjusted_results_2016 <- adjusted_results_df |>
+  select(-std.error, -statistic) |>  
+  filter(term != "(Intercept)")
+
+cleaned_full_model_adjusted_results_2016  <- cleaned_full_model_adjusted_results_2016  |>
+  mutate(conf_interval = paste0("(", round(conf.low, 2), ", ", round(conf.high, 2), ")")) |>
+  select(-conf.low, -conf.high)
+
+
+write.csv(cleaned_full_model_adjusted_results_2016, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Political Cancer Analysis/outputs/lagged_adjusted_results_2016_full_model.csv", row.names = FALSE)
+
+
+#poverty only
+lagged_adjusted_results_2016_poverty <- run_adjusted_models(standardized_data, health_metrics, exposures_2016, covariates_2016_poverty)
+
+lagged_adjusted_results_df <- extract_model_info(lagged_adjusted_results_2016_poverty, model_name = "Poverty Only") 
+
+cleaned_lagged_adjusted_results_2016_poverty <- lagged_adjusted_results_df |>
+  select(-std.error, -statistic) |>  
+  filter(term != "(Intercept)")
+
+cleaned_poverty_model_adjusted_results_2016  <- cleaned_lagged_adjusted_results_2016_poverty  |>
+  mutate(conf_interval = paste0("(", round(conf.low, 2), ", ", round(conf.high, 2), ")")) |>
+  select(-conf.low, -conf.high)
+
+write.csv(cleaned_poverty_model_adjusted_results_2016, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Political Cancer Analysis/outputs/lagged_adjusted_results_2016_poverty.csv", row.names = FALSE)
+
+
+#health insurance only
+lagged_adjusted_results_2016_health_insurance <- run_adjusted_models(standardized_data, health_metrics, exposures_2016, covariates_2016_health_insurance)
+
+lagged_adjusted_results_health_ins_df<-extract_model_info(lagged_adjusted_results_2016_health_insurance, model_name = "Health Insurance Only")
+
+cleaned_lagged_adjusted_results_2016_health_ins <- lagged_adjusted_results_health_ins_df |>
+  select(-std.error, -statistic) |>  
+  filter(term != "(Intercept)")
+
+cleaned_health_ins_model_adjusted_results_2016  <- cleaned_lagged_adjusted_results_2016_health_ins  |>
+  mutate(conf_interval = paste0("(", round(conf.low, 2), ", ", round(conf.high, 2), ")")) |>
+  select(-conf.low, -conf.high)
+
+write.csv(cleaned_health_ins_model_adjusted_results_2016, file = "/Users/soroush/Desktop/Harvard PhD/Harvard Research Manuscripts/C19 Political Cancer Paper/Political Cancer Analysis/outputs/lagged_adjusted_results_2016_health_ins.csv", row.names = FALSE)
+
+
+
+
+# --- REVISED extract_model_info (Handles BOTH adjusted and unadjusted robustly) ---
+extract_model_info <- function(results, model_name) {
+  if (is.list(results) && all(sapply(results, inherits, "lm"))) {
+    # --- Adjusted Model Path ---
+    results_df <- map_dfr(results, function(result) {
+      exposure_name <- attr(result, "exposure")
+      if (is.null(exposure_name)) {
+        warning("Model object missing 'exposure' attribute.", call. = FALSE)
+        return(NULL)
+      }
+      tidy_data <- tidy(result, conf.int = TRUE)
+      # Filter terms: Keep only those starting with the exposure name
+      filtered_data <- tidy_data %>%
+        filter(grepl(paste0("^", exposure_name), term)) # Match terms starting with exposure name
+
+      if (nrow(filtered_data) == 0 && any(tidy_data$term == exposure_name)) {
+          # Fallback if grepl fails but exact match exists (e.g. simple continuous)
+          filtered_data <- tidy_data %>% filter(term == exposure_name)
+      }
+
+      if (nrow(filtered_data) > 0) {
+          filtered_data <- filtered_data %>%
+          mutate(
+            health_metric = attr(result, "health_metric"),
+            exposure = exposure_name, # Use the stored base exposure name
+            covariates = attr(result, "covariates"),
+            model_name = model_name
+          )
+          return(filtered_data)
+      } else {
+          warning(paste("No terms matching exposure '", exposure_name, "' found in tidy results for health metric '", attr(result, "health_metric"), "'."), call. = FALSE)
+          return(NULL)
+      }
+    }, .id = NULL)
+
+  } else if (is.data.frame(results)) {
+    # --- Unadjusted Model Path ---
+    # Check for expected CI column names (prefer '.', then check '_')
+    conf_low_col <- if ("conf.low" %in% names(results)) "conf.low" else if ("conf_low" %in% names(results)) "conf_low" else NULL
+    conf_high_col <- if ("conf.high" %in% names(results)) "conf.high" else if ("conf_high" %in% names(results)) "conf_high" else NULL
+
+    if (is.null(conf_low_col) || is.null(conf_high_col)) {
+        warning(paste("Could not find confidence interval columns (conf.low/conf.high or conf_low/conf_high) in the input data frame for model:", model_name), call. = FALSE)
+        # Handle missing CI columns gracefully if needed, e.g., add NA cols
+        results_df <- results %>%
+            filter(term != "(Intercept)") %>% # Basic filter
+            select(any_of(c("term", "estimate", "std.error", "statistic", "p.value", "health_metric", "exposure"))) %>% # Select known essential columns safely
+            mutate(
+                conf.low = NA_real_,
+                conf.high = NA_real_,
+                model_name = model_name,
+                covariates = "None"
+            )
+    } else {
+        # Select and RENAME columns to ensure consistency (using the identified column names)
+        results_df <- results %>%
+            filter(term != "(Intercept)") %>% # Basic filter
+             # Select core columns & RENAME CI columns to conf.low/conf.high standard
+            select(
+                term, estimate, std.error, statistic, p.value,
+                conf.low = all_of(conf_low_col),  # Rename during selection
+                conf.high = all_of(conf_high_col), # Rename during selection
+                health_metric, exposure # Keep metadata cols
+            ) %>%
+            mutate(
+                model_name = model_name,
+                covariates = "None" # Add covariates column for consistency
+            )
+    }
+  } else {
+    stop("Input 'results' must be a list of lm objects or a data frame.")
+  }
+
+  # Optional: Add safety check/reordering if needed, but select() should handle core columns
+  # required_cols_final <- c("term", "estimate", "std.error", "statistic", "p.value", "conf.low", "conf.high", "health_metric", "exposure", "covariates", "model_name")
+  # results_df <- results_df # ... code to add missing cols / reorder ...
+
+  return(results_df)
+}
+# Extract the information:
+all_results <- bind_rows(
+  extract_model_info(lagged_adjusted_results_2016, "Full Model"),
+  extract_model_info(lagged_adjusted_results_2016_poverty, "Poverty Only"),
+  extract_model_info(lagged_adjusted_results_2016_health_insurance, "Health Insurance Only"),
+  extract_model_info(lagged_unadjusted_results_2016, "Null Model") #Add null model
+) |> 
+  filter(!grepl("local", health_metric, ignore.case = TRUE)) #filter out local
+
+
+
+desired_order <- c(
+  "trifecta12160", # Mixed State Trifecta
+  "trifecta12161", # Democratic State Trifecta
+  "dw_nom_ice_senate1216",
+  "dw_nom_ice_house1216",
+  "state_liberalism1216",
+  "electoral_score16"
+)
+
+
+# Helper function to combine exposure and term
+combine_exposure_term <- function(exposure, term) {
+    if (grepl("^trifecta", exposure)) {
+      return(term) #For trifecta, just paste the variable, we can combine later
+  } else{
+    return(paste(exposure))
+  }
+}
+
+
+# Create combined_term and convert to factor
+all_results <- all_results %>%
+  mutate(
+    combined_term = map2_chr(exposure, term, combine_exposure_term),  
+    combined_term = factor(combined_term, levels = desired_order)  
+  )
+
+
+# Reverse the factor levels to ensure "Null Model" is plotted on top
+all_results$model_name <- factor(
+  all_results$model_name,
+  levels = c("Full Model","Health Insurance Only","Poverty Only", "Null Model")
+)
+
+
+custom_colors <- setNames(c("#E41A1C", "#984EA3","#377EB8", "#4DAF4A"),
+                          c("Full Model","Health Insurance Only","Poverty Only", "Null Model"))
+
+
+custom_labels <- c(
+  "trifecta12160" = "State Trifecta: Mixed vs. R",
+  "trifecta12161" = "State Trifecta: D vs. R",  
+  "dw_nom_ice_senate1216" = "DW-Nominate: US Senate",
+  "dw_nom_ice_house1216" = "DW-Nominate: US House",
+  "state_liberalism1216" = "State liberalism Index",
+  "electoral_score16" = "Electoral college score"
+)
+
+
+all_results$health_metric <- factor(all_results$health_metric, levels = c(
+  "stage_percentage_RD_breast",
+  "stage_percentage_RD_cervix",
+  "stage_percentage_RD_colorectal",
+  "premature_avg_age_adjusted_rate"
+))
+
+# Create a named vector for the labels
+health_metric_labels <- c(
+    "premature_avg_age_adjusted_rate" = "Premature Cancer Mortality Rate",
+    "stage_percentage_RD_breast" = "Breast",
+    "stage_percentage_RD_cervix" = "Cervix",
+    "stage_percentage_RD_colorectal" = "Colorectal"
+)
+
+
+#forest plot code
+forest_plot <- ggplot(all_results, aes(x = estimate, y = combined_term, color = model_name)) +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_errorbarh(
+    aes(xmin = conf.low, xmax = conf.high),
+    height = 0.2,
+    position = position_dodge(width = 0.5)
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+  facet_wrap(~ health_metric, scales = "free_x", nrow = 1, ncol = 4, 
+             labeller = labeller(health_metric = health_metric_labels)) +
+  labs(
+    title = "",
+    x = "",
+    y = "",
+    color = "Model"
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = "bottom",
+    axis.text.y = element_text(size = 7),
+    strip.text = element_text(size = 8),
+    strip.background = element_blank()  # Remove the box around facet labels
+  ) +
+  scale_color_manual(values = custom_colors) +
+  scale_y_discrete(labels = custom_labels) +
+  guides(color = guide_legend(reverse = TRUE))
+
+print(forest_plot)
+
+library(svglite)
+ggsave(filename = "CrosssectionalForestPlotExport.svg", plot = forest_plot, width = 16, height = 12)
+
+ggsave(
+  filename = "LAGGED_ForestPlot_LetterSize_Landscape_legend_fixed.pdf", 
+  plot = forest_plot,                              
+  device = "pdf",                                   
+  width = 11,                                       
+  height = 8.5,                                    
+  units = "in"                                      
+)
+
+```
