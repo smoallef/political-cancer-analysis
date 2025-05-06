@@ -1,6 +1,6 @@
 ---
 title: "Political Cancer Analysis Public"
-author: "Soroush Moallef"
+author: "Soroush Moallef & Tori Cowger"
 date: "2025-04-20"
 output: html_document
 ---
